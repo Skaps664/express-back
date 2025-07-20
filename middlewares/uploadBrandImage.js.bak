@@ -1,0 +1,132 @@
+const multer = require("multer");
+const cloudinary = require("cloudinary").v2;
+const { cloudinaryUploadBuffer } = require("../utils/cloudinary");
+const path = require("path");
+const fs = require("fs");
+
+// Configure Cloudinary
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
+
+// Multer storage configurations - use memory storage for all uploads
+// This will keep files in memory for direct upload to Cloudinary
+const multerStorage = multer.memoryStorage();
+
+// Filter for image files
+const imageFilter = (req, file, cb) => {
+  if (file.mimetype.startsWith("image/")) {
+    cb(null, true);
+  } else {
+    cb(new Error("Only image files are allowed!"), false);
+  }
+};
+
+// Filter for documents and images
+const documentFilter = (req, file, cb) => {
+  // If it's an image
+  if (file.mimetype.startsWith("image/")) {
+    cb(null, true);
+  }
+  // If it's a document
+  else if (
+    file.mimetype === "application/pdf" ||
+    file.mimetype === "application/msword" ||
+    file.mimetype ===
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+    file.mimetype === "application/vnd.ms-excel" ||
+    file.mimetype ===
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
+    file.mimetype === "text/plain"
+  ) {
+    cb(null, true);
+  } else {
+    cb(
+      new Error("Only image, PDF, Word, Excel or text files are allowed!"),
+      false
+    );
+  }
+};
+
+const uploadBrandFiles = multer({
+  storage: multerStorage,
+  fileFilter: imageFilter,
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB max
+}).fields([
+  { name: "logo", maxCount: 1 },
+  { name: "banner", maxCount: 1 },
+  { name: "thumbnail", maxCount: 1 },
+]);
+
+// For brand page settings documents and promotions - use memory storage
+const multerBrandDocs = multer({
+  storage: multerStorage,
+  fileFilter: documentFilter,
+  limits: { fileSize: 20 * 1024 * 1024 }, // 20MB max for documents
+});
+
+// Create configurations for different upload scenarios
+const uploadBrandDocuments = {
+  fields: multerBrandDocs.fields([
+    { name: "image", maxCount: 1 }, // For promotions
+    { name: "document", maxCount: 1 }, // For warranty documents
+  ]),
+  single: function (fieldName) {
+    return multerBrandDocs.single(fieldName);
+  },
+};
+
+// Middleware to upload files to Cloudinary
+const uploadToCloudinary = async (req, res, next) => {
+  try {
+    if (req.files) {
+      // Upload logo
+      if (req.files.logo && req.files.logo[0]) {
+        const uploadRes = await cloudinary.uploader.upload_stream(
+          { folder: "brands", resource_type: "image" },
+          (error, result) => {
+            if (error) throw new Error(error.message);
+            req.body.logo = result.secure_url;
+          }
+        );
+        uploadRes.end(req.files.logo[0].buffer);
+      }
+
+      // Upload banner
+      if (req.files.banner && req.files.banner[0]) {
+        const uploadRes = await cloudinary.uploader.upload_stream(
+          { folder: "brands", resource_type: "image" },
+          (error, result) => {
+            if (error) throw new Error(error.message);
+            req.body.banner = result.secure_url;
+          }
+        );
+        uploadRes.end(req.files.banner[0].buffer);
+      }
+
+      // Upload thumbnail
+      if (req.files.thumbnail && req.files.thumbnail[0]) {
+        const uploadRes = await cloudinary.uploader.upload_stream(
+          { folder: "brands", resource_type: "image" },
+          (error, result) => {
+            if (error) throw new Error(error.message);
+            req.body.thumbnail = result.secure_url;
+          }
+        );
+        uploadRes.end(req.files.thumbnail[0].buffer);
+      }
+    }
+    next();
+  } catch (error) {
+    console.error("Cloudinary upload error:", error);
+    res.status(500).json({ success: false, message: "File upload failed" });
+  }
+};
+
+module.exports = {
+  uploadBrandFiles,
+  uploadToCloudinary,
+  uploadBrandDocuments,
+};

@@ -1,0 +1,37 @@
+module.exports = {
+  "solar-panels": [
+    { field: "brand", type: "select", label: "Brand" },
+    { field: "power", type: "range", label: "Wattage (W)" },
+    { field: "cellType", type: "select", label: "Cell Type" },
+    { field: "isFeatured", type: "boolean", label: "Featured" },
+    { field: "isBestSeller", type: "boolean", label: "Best Seller" },
+    { field: "price", type: "range", label: "Price" },
+    { field: "rating", type: "range", label: "Rating" },
+  ],
+  batteries: [
+    { field: "brand", type: "select", label: "Brand" },
+    { field: "capacity", type: "range", label: "Capacity (Ah)" },
+    { field: "voltage", type: "range", label: "Voltage (V)" },
+    { field: "chemistry", type: "select", label: "Chemistry" },
+    { field: "isFeatured", type: "boolean", label: "Featured" },
+    { field: "isBestSeller", type: "boolean", label: "Best Seller" },
+    { field: "price", type: "range", label: "Price" },
+    { field: "rating", type: "range", label: "Rating" },
+  ],
+  inverters: [
+    { field: "brand", type: "select", label: "Brand" },
+    { field: "power", type: "range", label: "Power (kW)" },
+    { field: "phase", type: "select", label: "Phase" },
+    { field: "isFeatured", type: "boolean", label: "Featured" },
+    { field: "isBestSeller", type: "boolean", label: "Best Seller" },
+    { field: "price", type: "range", label: "Price" },
+    { field: "rating", type: "range", label: "Rating" },
+  ],
+  default: [
+    { field: "brand", type: "select", label: "Brand" },
+    { field: "isFeatured", type: "boolean", label: "Featured" },
+    { field: "isBestSeller", type: "boolean", label: "Best Seller" },
+    { field: "price", type: "range", label: "Price" },
+    { field: "rating", type: "range", label: "Rating" },
+  ],
+};
