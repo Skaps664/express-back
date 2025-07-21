@@ -43,7 +43,7 @@ app.use(
 
 app.use(
   cors({
-    origin: process.env.FRONTEND_URL || "http://localhost:3001", // Default to localhost for development
+    origin: process.env.FRONTEND_URL || "https://www.solarexpress.pk/", // Default to localhost for development
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
     allowedHeaders: ["Content-Type", "Authorization", "Cookie"],
@@ -81,7 +81,5 @@ app.get("/api/health", (req, res) => {
 dbConnect();
 
 app.use(errorMiddleware);
-
-module.exports = app;
 
 module.exports = app;
