@@ -137,10 +137,21 @@ async function attemptTokenRefresh(req, res, next, refreshToken) {
         ? user.refreshToken.substring(0, 50) + "..."
         : "No token stored"
     );
+    console.log(
+      "🔍 Cookie refresh token (first 50 chars):",
+      refreshToken.substring(0, 50) + "..."
+    );
+    console.log("🔍 Stored token length:", user.refreshToken?.length || 0);
+    console.log("🔍 Cookie token length:", refreshToken.length);
     console.log("🔍 Token match:", user.refreshToken === refreshToken);
 
     if (user.refreshToken !== refreshToken) {
       console.log("❌ Refresh token mismatch");
+      console.log(
+        "Last 20 chars of stored token:",
+        user.refreshToken?.slice(-20) || "none"
+      );
+      console.log("Last 20 chars of cookie token:", refreshToken.slice(-20));
       return res.status(401).json({
         success: false,
         message: "Invalid refresh token, please login again",

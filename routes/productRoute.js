@@ -17,6 +17,7 @@ const {
   getAllProducts,
   getProductBySlug,
   getProductsByCategory,
+  getFeaturedProducts,
   updateProduct,
   deleteProduct,
   debog,
@@ -41,6 +42,7 @@ router.post(
 
 // Cached routes for high performance
 router.get("/", cacheConfigs.products, getAllProducts); // GET all products with caching
+router.get("/featured", cacheConfigs.products, getFeaturedProducts); // GET featured products with caching
 router.get("/debog", debog);
 router.get("/filters/:slug", cacheConfigs.categories, getCategoryFilters); // Cache category filters
 router.get("/category/:slug", cacheConfigs.products, getProductsByCategory); // Cache category products

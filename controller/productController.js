@@ -689,6 +689,46 @@ const uploadImages = asyncHandler(async (req, res) => {
   }
 });
 
+// Get Featured Products
+const getFeaturedProducts = asyncHandler(async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) > 0 ? parseInt(req.query.page) : 1;
+    const limit =
+      parseInt(req.query.limit) > 0 ? parseInt(req.query.limit) : 12;
+    const skip = (page - 1) * limit;
+
+    const [products, total] = await Promise.all([
+      Product.find({ isFeatured: true })
+        .populate("brand", "name slug logo")
+        .populate("category", "name slug")
+        .select(
+          "name slug price originalPrice discountPercentage stock images specifications isFeatured isBestSeller reviews viewCount variants"
+        )
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit),
+      Product.countDocuments({ isFeatured: true }),
+    ]);
+
+    res.json({
+      success: true,
+      products,
+      pagination: {
+        page,
+        limit,
+        total,
+        pages: Math.ceil(total / limit),
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching featured products:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch featured products",
+    });
+  }
+});
+
 // Parse helper function
 function parseIfString(val) {
   try {
@@ -705,6 +745,7 @@ module.exports = {
   getAllProducts,
   getProductBySlug,
   getProductsByCategory,
+  getFeaturedProducts,
   getCategoryFilters,
   debog,
   uploadImages,

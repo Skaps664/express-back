@@ -17,9 +17,47 @@ const createUser = asyncHandler(async (req, res) => {
 
   if (!findUser) {
     const newUser = await User.create(req.body);
+
+    // Generate tokens for immediate authentication after registration
+    const refreshToken = await generateRefreshToken(newUser._id);
+    await updateUserRefreshToken(newUser._id, refreshToken);
+
+    // Set the same cookie settings as login
+    const isProduction = process.env.NODE_ENV === "production";
+    const isLocal =
+      !isProduction || process.env.FRONTEND_URL?.includes("localhost");
+
+    const cookieOptions = {
+      httpOnly: true,
+      secure: isProduction && !isLocal,
+      sameSite: isLocal ? "lax" : isProduction ? "none" : "lax",
+      path: "/",
+      domain: isLocal ? undefined : process.env.COOKIE_DOMAIN,
+    };
+
+    res.cookie("refreshToken", refreshToken, {
+      ...cookieOptions,
+      maxAge: 10 * 24 * 60 * 60 * 1000, // 10 days
+    });
+
+    res.cookie("accessToken", generateToken(newUser._id), {
+      ...cookieOptions,
+      maxAge: 15 * 60 * 1000, // 15 minutes
+    });
+
     return res.status(201).json({
       success: true,
-      data: newUser,
+      message: "Registration successful",
+      user: {
+        _id: newUser._id,
+        name: newUser.name,
+        email: newUser.email,
+        mobile: newUser.mobile,
+        isAdmin: newUser.isAdmin,
+        createdAt: newUser.createdAt,
+        updatedAt: newUser.updatedAt,
+      },
+      token: generateToken(newUser._id),
     });
   } else {
     return res.status(409).json({

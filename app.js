@@ -85,16 +85,28 @@ const corsOptions = {
       "http://localhost:3000", // Next.js frontend
       "http://localhost:3001", // Additional frontend port
       "http://127.0.0.1:3000", // Alternative localhost
+      "https://express-solar-store.vercel.app", // Vercel frontend
+      "https://express-solar-store-git-ui-update-skaps664.vercel.app", // Vercel branch deployment
     ];
 
     // Allow requests with no origin (mobile apps, etc.)
     if (!origin) return callback(null, true);
 
+    // Check exact matches first
     if (allowedOrigins.includes(origin)) {
       return callback(null, true);
-    } else {
-      return callback(new Error("Not allowed by CORS"));
     }
+
+    // Allow all Vercel deployments for this project
+    if (
+      origin &&
+      origin.includes("express-solar-store") &&
+      origin.includes("vercel.app")
+    ) {
+      return callback(null, true);
+    }
+
+    return callback(new Error("Not allowed by CORS"));
   },
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
