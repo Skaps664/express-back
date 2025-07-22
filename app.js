@@ -43,7 +43,11 @@ app.use(
 
 app.use(
   cors({
-    origin: ["https://www.solarexpress.pk", "https://solarexpress.pk"],
+    origin: [
+      "https://www.solarexpress.pk",
+      "https://solarexpress.pk",
+      "http://localhost:3001",
+    ], // Allow specific origins
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
     allowedHeaders: ["Content-Type", "Authorization", "Cookie"],
