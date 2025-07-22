@@ -13,6 +13,7 @@ const {
   blockUser,
   unBlockUser,
   logoutUser,
+  refreshAccessToken,
   handleRefreshToken,
   getCurrentUser,
   addToCart,
@@ -32,6 +33,7 @@ router.get("/me", authMiddleware, getCurrentUser);
 
 router.post("/login", loginUser);
 router.post("/logout", authMiddleware, logoutUser);
+router.post("/refresh", refreshAccessToken);
 
 router.get("/refresh-token", handleRefreshToken);
 

@@ -4,6 +4,10 @@ const router = express.Router();
 
 const { authMiddleware, isAdmin } = require("../middlewares/authMiddleware");
 const {
+  cacheConfigs,
+  invalidateCache,
+} = require("../middlewares/cacheMiddleware");
+const {
   uploadProductFiles,
   uploadToCloudinary,
 } = require("../middlewares/uploadProductImage");
@@ -20,30 +24,56 @@ const {
   uploadImages,
 } = require("../controller/productController");
 
-// Create product route with file upload
+// Create product route with file upload and cache invalidation
 router.post(
   "/create",
   authMiddleware,
   isAdmin,
   uploadProductFiles,
   uploadToCloudinary,
-  createProduct
+  async (req, res, next) => {
+    await createProduct(req, res, next);
+    // Invalidate product caches after creation
+    await invalidateCache.products();
+    await invalidateCache.catalog();
+  }
 );
 
-router.get("/", getAllProducts); // GET all products
+// Cached routes for high performance
+router.get("/", cacheConfigs.products, getAllProducts); // GET all products with caching
 router.get("/debog", debog);
-router.get("/filters/:slug", getCategoryFilters);
-router.get("/category/:slug", getProductsByCategory);
+router.get("/filters/:slug", cacheConfigs.categories, getCategoryFilters); // Cache category filters
+router.get("/category/:slug", cacheConfigs.products, getProductsByCategory); // Cache category products
+
+// Update product with cache invalidation
 router.put(
   "/update/:id",
   authMiddleware,
   isAdmin,
   uploadProductFiles,
   uploadToCloudinary,
-  updateProduct
-); // Update product by ID
-router.delete("/delete/:id", authMiddleware, isAdmin, deleteProduct); // Delete product by ID
+  async (req, res, next) => {
+    await updateProduct(req, res, next);
+    // Invalidate specific product and related caches
+    await invalidateCache.products(req.params.id);
+    await invalidateCache.catalog();
+  }
+);
+
+// Delete product with cache invalidation
+router.delete(
+  "/delete/:id",
+  authMiddleware,
+  isAdmin,
+  async (req, res, next) => {
+    await deleteProduct(req, res, next);
+    // Invalidate specific product and related caches
+    await invalidateCache.products(req.params.id);
+    await invalidateCache.catalog();
+  }
+);
+
 // This should be last as it's a catch-all route with a parameter
-router.get("/:slug", getProductBySlug); // GET product by slug
+router.get("/:slug", cacheConfigs.productDetail, getProductBySlug); // GET product by slug with caching
 
 module.exports = router;

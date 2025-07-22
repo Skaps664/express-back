@@ -109,20 +109,32 @@ const getAllProducts = asyncHandler(async (req, res) => {
     query.$and = (query.$and || []).concat(specFilters);
   }
 
+  // Pagination - moved before category filter to fix scoping issue
+  const page = parseInt(req.query.page) > 0 ? parseInt(req.query.page) : 1;
+  const limit = parseInt(req.query.limit) > 0 ? parseInt(req.query.limit) : 20;
+  const skip = (page - 1) * limit;
+
   // Category filter
   if (req.query.category) {
     const categoryDoc = await Category.findOne({ slug: req.query.category });
     if (categoryDoc) {
       query.category = categoryDoc._id;
     } else {
-      query.category = req.query.category;
+      // If category not found by slug, return empty results
+      // This prevents ObjectId cast errors
+      return res.json({
+        success: true,
+        products: [],
+        pagination: {
+          page: 1,
+          limit: limit,
+          total: 0,
+          pages: 0,
+        },
+        message: `Category '${req.query.category}' not found`,
+      });
     }
   }
-
-  // Pagination
-  const page = parseInt(req.query.page) > 0 ? parseInt(req.query.page) : 1;
-  const limit = parseInt(req.query.limit) > 0 ? parseInt(req.query.limit) : 20;
-  const skip = (page - 1) * limit;
 
   // Disable caching for search results
   res.setHeader("Cache-Control", "no-store");

@@ -8,7 +8,12 @@ const asyncHandler = require("express-async-handler");
 // CREATE USER
 const createUser = asyncHandler(async (req, res) => {
   const { email } = req.body;
-  const findUser = await User.findOne({ email });
+
+  // Optimized query with field selection and timeout
+  const findUser = await User.findOne({ email })
+    .select("_id email")
+    .lean()
+    .maxTimeMS(5000);
 
   if (!findUser) {
     const newUser = await User.create(req.body);
@@ -28,34 +33,80 @@ const createUser = asyncHandler(async (req, res) => {
 const loginUser = asyncHandler(async (req, res) => {
   const { email, password } = req.body;
 
-  const findUser = await User.findOne({ email });
+  // Optimized query with specific field selection and compound index usage
+  const findUser = await User.findOne({
+    email: email.toLowerCase().trim(),
+    isBlocked: false,
+  })
+    .select("_id name email mobile password isAdmin createdAt updatedAt")
+    .maxTimeMS(8000);
+
   if (!findUser) {
     return res.status(401).json({
       success: false,
       message: "User not found",
     });
   }
+
   if (!(await findUser.isPasswordMatched(password))) {
     return res.status(401).json({
       success: false,
       message: "Incorrect password",
     });
   }
+
   const refreshToken = await generateRefreshToken(findUser._id);
-  await User.findByIdAndUpdate(
-    findUser._id,
-    { refreshToken: refreshToken },
-    { new: true }
-  );
+
+  // Optimized update with specific field selection and error handling
+  try {
+    const updateResult = await User.findByIdAndUpdate(
+      findUser._id,
+      { refreshToken: refreshToken },
+      { new: false, select: "_id" }
+    ).maxTimeMS(5000);
+
+    if (!updateResult) {
+      console.error("❌ Failed to update user with refresh token");
+      return res.status(500).json({
+        success: false,
+        message: "Login failed - could not save session",
+      });
+    }
+
+    console.log(
+      "✅ Refresh token stored successfully for user:",
+      findUser.email
+    );
+  } catch (updateError) {
+    console.error("❌ Database update error:", updateError.message);
+    return res.status(500).json({
+      success: false,
+      message: "Login failed - database error",
+    });
+  }
+
+  // Production-friendly cookie settings with local development support
+  const isProduction = process.env.NODE_ENV === "production";
+  const isLocal =
+    !isProduction || process.env.FRONTEND_URL?.includes("localhost");
+
+  const cookieOptions = {
+    httpOnly: true,
+    secure: isProduction && !isLocal, // Only secure in production, not for localhost
+    sameSite: isLocal ? "lax" : isProduction ? "none" : "lax", // Lax for localhost
+    path: "/",
+    domain: isLocal ? undefined : process.env.COOKIE_DOMAIN, // No domain for localhost
+  };
+
+  console.log("🍪 Cookie settings:", { isProduction, isLocal, cookieOptions });
+
   res.cookie("refreshToken", refreshToken, {
-    httpOnly: true,
-    secure: true,
-    maxAge: 10 * 24 * 60 * 60 * 1000,
+    ...cookieOptions,
+    maxAge: 10 * 24 * 60 * 60 * 1000, // 10 days
   });
+
   res.cookie("accessToken", generateToken(findUser._id), {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
+    ...cookieOptions,
     maxAge: 15 * 60 * 1000, // 15 minutes
   });
 
@@ -84,11 +135,23 @@ const handleRefreshToken = asyncHandler(async (req, res) => {
   }
 
   const refreshToken = cookie.refreshToken;
-  const user = await User.findOne({ refreshToken });
+
+  // Optimized query with field selection and timeout
+  const user = await User.findOne({ refreshToken })
+    .select("_id name email mobile isAdmin isBlocked")
+    .maxTimeMS(5000);
+
   if (!user) {
     return res.status(403).json({
       success: false,
       message: "Refresh token not found, please login again",
+    });
+  }
+
+  if (user.isBlocked) {
+    return res.status(403).json({
+      success: false,
+      message: "User account is blocked",
     });
   }
 
@@ -105,10 +168,33 @@ const handleRefreshToken = asyncHandler(async (req, res) => {
         message: "User ID mismatch in refresh token",
       });
     }
+
     const newAccessToken = generateToken(user._id);
+
+    // Set the new access token cookie with consistent settings
+    const isProduction = process.env.NODE_ENV === "production";
+    const isLocal =
+      !isProduction || process.env.FRONTEND_URL?.includes("localhost");
+
+    res.cookie("accessToken", newAccessToken, {
+      httpOnly: true,
+      secure: isProduction && !isLocal,
+      sameSite: isLocal ? "lax" : isProduction ? "none" : "lax",
+      path: "/",
+      domain: isLocal ? undefined : process.env.COOKIE_DOMAIN,
+      maxAge: 15 * 60 * 1000, // 15 minutes
+    });
+
     return res.status(200).json({
       success: true,
       accessToken: newAccessToken,
+      user: {
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        mobile: user.mobile,
+        isAdmin: user.isAdmin,
+      },
     });
   });
 });
@@ -122,15 +208,101 @@ const logoutUser = asyncHandler(async (req, res) => {
       message: "No refresh token provided",
     });
   }
-  await User.findOneAndUpdate({ refreshToken }, { refreshToken: "" });
-  res.clearCookie("refreshToken", {
+
+  // Optimized logout with timeout
+  await User.findOneAndUpdate(
+    { refreshToken },
+    { refreshToken: "" },
+    { maxTimeMS: 5000 }
+  );
+
+  const isProduction = process.env.NODE_ENV === "production";
+  const cookieOptions = {
     httpOnly: true,
-    secure: true,
-  });
+    secure: isProduction,
+    sameSite: isProduction ? "none" : "lax",
+    path: "/",
+    domain: isProduction ? process.env.COOKIE_DOMAIN : undefined,
+  };
+
+  res.clearCookie("refreshToken", cookieOptions);
+  res.clearCookie("accessToken", cookieOptions);
+
   return res.status(200).json({
     success: true,
     message: "Logout successful",
   });
+});
+
+// REFRESH ACCESS TOKEN
+const refreshAccessToken = asyncHandler(async (req, res) => {
+  const { refreshToken } = req.cookies;
+
+  if (!refreshToken) {
+    return res.status(401).json({
+      success: false,
+      message: "No refresh token provided",
+    });
+  }
+
+  try {
+    const decoded = jwt.verify(refreshToken, process.env.REFRESH_JWT_SECRET);
+
+    const user = await User.findById(decoded.id)
+      .select("_id name email mobile isAdmin role isBlocked refreshToken")
+      .maxTimeMS(5000);
+
+    if (!user || user.refreshToken !== refreshToken) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid refresh token",
+      });
+    }
+
+    if (user.isBlocked) {
+      return res.status(403).json({
+        success: false,
+        message: "Account is blocked",
+      });
+    }
+
+    // Generate new access token
+    const newAccessToken = generateToken(user._id);
+
+    // Set cookie
+    const isProduction = process.env.NODE_ENV === "production";
+    const cookieOptions = {
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: isProduction ? "none" : "lax",
+      path: "/",
+      domain: isProduction ? process.env.COOKIE_DOMAIN : undefined,
+    };
+
+    res.cookie("accessToken", newAccessToken, {
+      ...cookieOptions,
+      maxAge: 15 * 60 * 1000, // 15 minutes
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Token refreshed successfully",
+      user: {
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        mobile: user.mobile,
+        isAdmin: user.isAdmin || user.role === "admin",
+        role: user.role || (user.isAdmin ? "admin" : "user"),
+      },
+      token: newAccessToken,
+    });
+  } catch (error) {
+    return res.status(401).json({
+      success: false,
+      message: "Invalid refresh token",
+    });
+  }
 });
 
 // GET ALL USERS
@@ -235,19 +407,49 @@ const unBlockUser = asyncHandler(async (req, res) => {
 
 // GET CURRENT USER
 const getCurrentUser = asyncHandler(async (req, res) => {
-  const user = await User.findById(req.user?._id).select("-password");
-  if (!user) {
+  // User is already loaded in authMiddleware, just return it
+  if (!req.user) {
     return res.status(404).json({ success: false, message: "User not found" });
   }
-  res.json({ success: true, user });
+
+  // Fetch complete user data including isAdmin status
+  const completeUser = await User.findById(req.user._id)
+    .select("_id name email mobile isAdmin role isBlocked createdAt updatedAt")
+    .maxTimeMS(5000);
+
+  if (!completeUser) {
+    return res.status(404).json({ success: false, message: "User not found" });
+  }
+
+  // Ensure isAdmin is properly set based on role for backward compatibility
+  const userData = {
+    _id: completeUser._id,
+    name: completeUser.name,
+    email: completeUser.email,
+    mobile: completeUser.mobile,
+    isAdmin: completeUser.isAdmin || completeUser.role === "admin",
+    role: completeUser.role || (completeUser.isAdmin ? "admin" : "user"),
+    isBlocked: completeUser.isBlocked,
+    createdAt: completeUser.createdAt,
+    updatedAt: completeUser.updatedAt,
+  };
+
+  res.json({
+    success: true,
+    user: userData,
+  });
 });
 
 // GET USER'S CART
 const getCart = asyncHandler(async (req, res) => {
-  const user = await User.findById(req.user._id).populate({
-    path: "cart.product",
-    select: "name price images slug variants",
-  });
+  const user = await User.findById(req.user._id)
+    .populate({
+      path: "cart.product",
+      select: "name price images slug variants",
+    })
+    .select("cart")
+    .maxTimeMS(8000);
+
   if (!user) {
     return res.status(404).json({ success: false, message: "User not found" });
   }
@@ -607,6 +809,7 @@ module.exports = {
   createUser,
   loginUser,
   logoutUser,
+  refreshAccessToken,
   getAllUsers,
   getSingleUser,
   deleteUser,
