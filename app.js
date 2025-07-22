@@ -43,7 +43,7 @@ app.use(
 
 app.use(
   cors({
-    origin: process.env.FRONTEND_URL || "https://www.solarexpress.pk/", // Default to localhost for development
+    origin: ["https://www.solarexpress.pk", "https://solarexpress.pk"],
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
     allowedHeaders: ["Content-Type", "Authorization", "Cookie"],
