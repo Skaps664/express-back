@@ -41,7 +41,11 @@ router.post(
 );
 
 // Cached routes for high performance
-router.get("/", cacheConfigs.products, getAllProducts); // GET all products with caching
+// GET all products with caching
+router.get("/", cacheConfigs.products, getAllProducts);
+
+// Admin endpoint without caching for real-time data
+router.get("/admin/all", authMiddleware, isAdmin, getAllProducts);
 router.get("/featured", cacheConfigs.products, getFeaturedProducts); // GET featured products with caching
 router.get("/debog", debog);
 router.get("/filters/:slug", cacheConfigs.categories, getCategoryFilters); // Cache category filters
@@ -72,6 +76,8 @@ router.delete(
     // Invalidate specific product and related caches
     await invalidateCache.products(req.params.id);
     await invalidateCache.catalog();
+    // Also invalidate the main products list cache more aggressively
+    await invalidateCache.all();
   }
 );
 

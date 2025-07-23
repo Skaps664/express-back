@@ -29,6 +29,7 @@ router.get("/admin/all", authMiddleware, isAdmin, getAllCategoriesAdmin);
 // Modification routes
 router.post("/new/create", authMiddleware, isAdmin, createCategory);
 router.put("/update/:id", authMiddleware, isAdmin, updateCategory);
-router.delete("/del/:id", authMiddleware, isAdmin, deleteCategory);
+router.delete("/delete/:id", authMiddleware, isAdmin, deleteCategory);
+router.delete("/del/:id", authMiddleware, isAdmin, deleteCategory); // Alternative route for compatibility
 
 module.exports = router;

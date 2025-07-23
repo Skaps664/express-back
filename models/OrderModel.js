@@ -60,6 +60,37 @@ const orderSchema = new mongoose.Schema(
       postalCode: String,
       country: String,
     },
+    customerInfo: {
+      fullName: {
+        type: String,
+        required: true,
+        trim: true,
+      },
+      phoneNumber: {
+        type: String,
+        required: true,
+        trim: true,
+      },
+      whatsappNumber: {
+        type: String,
+        required: true,
+        trim: true,
+      },
+      shippingAddress: {
+        type: String,
+        required: true,
+        trim: true,
+      },
+      email: {
+        type: String,
+        trim: true,
+        lowercase: true,
+      },
+      specialNotes: {
+        type: String,
+        trim: true,
+      },
+    },
     status: {
       type: String,
       enum: [
@@ -69,6 +100,7 @@ const orderSchema = new mongoose.Schema(
         "Shipped",
         "Delivered",
         "Cancelled",
+        "Paid",
       ],
       default: "Pending",
     },
@@ -103,6 +135,14 @@ const orderSchema = new mongoose.Schema(
     },
     whatsappPhoneNumber: {
       type: String,
+    },
+    emailSent: {
+      type: Boolean,
+      default: false,
+    },
+    adminNotes: {
+      type: String,
+      trim: true,
     },
     directPurchase: {
       type: Boolean,

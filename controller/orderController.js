@@ -5,7 +5,7 @@ const Product = require("../models/ProductsModel");
 const validateMongoId = require("../utils/validateMongoId");
 
 // Configure WhatsApp business number here
-const WHATSAPP_NUMBER = "923001234567"; // Replace with your business WhatsApp number
+const WHATSAPP_NUMBER = "923259327819"; // Replace with your business WhatsApp number
 
 /**
  * @desc    Create order and generate WhatsApp link
@@ -13,8 +13,22 @@ const WHATSAPP_NUMBER = "923001234567"; // Replace with your business WhatsApp n
  * @access  Private
  */
 const createOrder = asyncHandler(async (req, res) => {
-  const { shippingAddress, paymentMethod = "WhatsApp", orderNotes } = req.body;
+  const { customerInfo, paymentMethod = "WhatsApp", orderNotes } = req.body;
   const userId = req.user._id;
+
+  // Validate customerInfo
+  if (
+    !customerInfo ||
+    !customerInfo.fullName ||
+    !customerInfo.phoneNumber ||
+    !customerInfo.whatsappNumber ||
+    !customerInfo.shippingAddress
+  ) {
+    res.status(400);
+    throw new Error(
+      "Customer information is required: Full name, phone number, WhatsApp number, and shipping address"
+    );
+  }
 
   // Get user with cart populated
   const user = await User.findById(userId).populate({
@@ -73,58 +87,62 @@ const createOrder = asyncHandler(async (req, res) => {
     user: userId,
     items: orderItems,
     totalAmount,
-    shippingAddress,
-    paymentMethod: paymentMethod || "Bank Transfer",
-    orderNotes,
+    customerInfo: {
+      fullName: customerInfo.fullName,
+      phoneNumber: customerInfo.phoneNumber,
+      whatsappNumber: customerInfo.whatsappNumber,
+      shippingAddress: customerInfo.shippingAddress,
+      email: customerInfo.email || "",
+      specialNotes: customerInfo.specialNotes || "",
+    },
+    paymentMethod: paymentMethod || "WhatsApp",
+    orderNotes: orderNotes || customerInfo.specialNotes || "",
     directPurchase: false,
     whatsappPhoneNumber: WHATSAPP_NUMBER,
   });
 
   // Generate WhatsApp message text
-  let messageText = `*New Order #${Math.floor(
-    Date.now() / 1000
-  ).toString()}*\n\n`;
-  messageText += `*Order Items:*\n`;
+  let messageText = `🛒 *New Order Received!*\\n\\n`;
+  messageText += `📋 *Order Number:* ${order.orderNumber || "TBD"}\\n`;
+  messageText += `📅 *Date:* ${new Date().toLocaleDateString()}\\n\\n`;
 
+  messageText += `👤 *Customer Details:*\\n`;
+  messageText += `• Name: ${customerInfo.fullName}\\n`;
+  messageText += `• Phone: ${customerInfo.phoneNumber}\\n`;
+  messageText += `• WhatsApp: ${customerInfo.whatsappNumber}\\n`;
+  messageText += `• Email: ${customerInfo.email || "Not provided"}\\n`;
+  messageText += `• Address: ${customerInfo.shippingAddress}\\n\\n`;
+
+  if (customerInfo.specialNotes) {
+    messageText += `📝 *Special Notes:* ${customerInfo.specialNotes}\\n\\n`;
+  }
+
+  messageText += `🛍️ *Order Items:*\\n`;
   orderItems.forEach((item, index) => {
-    messageText += `${index + 1}. ${item.name} x ${item.quantity} - PKR ${
-      item.price * item.quantity
-    }\n`;
+    messageText += `${index + 1}. ${item.name}\\n`;
+    messageText += `   • Quantity: ${item.quantity}\\n`;
+    messageText += `   • Price: PKR ${item.price.toLocaleString()}\\n`;
     if (item.selectedVariant) {
-      messageText += `   Variant: ${item.selectedVariant}\n`;
+      messageText += `   • Variant: ${item.selectedVariant}\\n`;
     }
+    messageText += `\\n`;
   });
 
-  messageText += `\n*Total Amount:* PKR ${totalAmount}\n\n`;
-
-  if (shippingAddress) {
-    messageText += `*Shipping Address:*\n`;
-    messageText += `${shippingAddress.fullName}\n`;
-    messageText += `${shippingAddress.phoneNumber}\n`;
-    messageText += `${shippingAddress.street}, ${shippingAddress.city}, ${
-      shippingAddress.state || ""
-    } ${shippingAddress.postalCode}\n`;
-    messageText += `${shippingAddress.country}\n\n`;
-  }
-
-  messageText += `*Payment Method:* ${paymentMethod || "Bank Transfer"}\n\n`;
-
-  if (orderNotes) {
-    messageText += `*Order Notes:*\n${orderNotes}\n\n`;
-  }
-
-  messageText += `Thank you for your order! Please send payment details or let us know if you have any questions.`;
+  messageText += `💰 *Total Amount: PKR ${totalAmount.toLocaleString()}*\\n\\n`;
+  messageText += `Thank you for your order! We will contact you soon to confirm payment and delivery details.\\n\\n`;
+  messageText += `🔗 View details: ${process.env.FRONTEND_URL}/admin/orders`;
 
   // Store the WhatsApp message content in the order
   order.whatsappMessageContent = messageText;
 
   // Generate WhatsApp URL
   const whatsappURL = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(
-    messageText.replace(/\n/g, "\\n")
+    messageText.replace(/\\n/g, "%0A")
   )}`;
 
   // Mark as WhatsApp message sent
   order.whatsappSent = true;
+  order.emailSent = false; // We'll implement email later
   await order.save();
 
   // Clear user's cart
@@ -133,9 +151,16 @@ const createOrder = asyncHandler(async (req, res) => {
 
   res.status(201).json({
     success: true,
-    message: "Order created successfully",
-    order,
+    message:
+      "Order created successfully! You will be redirected to WhatsApp to complete your order.",
+    order: {
+      orderNumber: order.orderNumber,
+      totalAmount: order.totalAmount,
+      status: order.status,
+      customerInfo: order.customerInfo,
+    },
     whatsappURL,
+    whatsappMessage: messageText.replace(/\\n/g, "\n"),
   });
 });
 
