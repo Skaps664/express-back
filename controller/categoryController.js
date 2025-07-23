@@ -88,15 +88,66 @@ const updateCategory = asyncHandler(async (req, res) => {
 // @desc    Delete a category
 // @route   DELETE /api/categories/:id
 const deleteCategory = asyncHandler(async (req, res) => {
-  const category = await Category.findById(req.params.id);
-  if (!category) {
-    res.status(404);
-    throw new Error("Category not found");
+  const { id } = req.params;
+
+  console.log("🗑️ Attempting to delete category with ID:", id);
+
+  // Validate ObjectId format
+  if (!id || !id.match(/^[0-9a-fA-F]{24}$/)) {
+    console.log("❌ Invalid category ID format:", id);
+    return res.status(400).json({
+      success: false,
+      message: "Invalid category ID format",
+    });
   }
 
-  // Fixed: Changed from remove() to deleteOne() which is the modern approach
-  await category.deleteOne();
-  res.json({ message: "Category removed" });
+  try {
+    // First check if category exists
+    const category = await Category.findById(id);
+    if (!category) {
+      console.log("❌ Category not found for ID:", id);
+      return res.status(404).json({
+        success: false,
+        message: "Category not found",
+      });
+    }
+
+    console.log("✅ Category found, proceeding with deletion:", category.name);
+
+    // Check if there are products associated with this category
+    const Product = require("../models/ProductsModel");
+    const productsCount = await Product.countDocuments({ category: id });
+
+    if (productsCount > 0) {
+      console.log(`⚠️ Category has ${productsCount} associated products`);
+      return res.status(400).json({
+        success: false,
+        message: `Cannot delete category. It has ${productsCount} associated products. Please move or delete the products first.`,
+      });
+    }
+
+    // Delete the category using deleteOne method
+    await Category.findByIdAndDelete(id);
+
+    console.log("✅ Category deleted successfully:", category.name);
+
+    res.status(200).json({
+      success: true,
+      message: "Category deleted successfully",
+      deletedCategory: {
+        id: category._id,
+        name: category.name,
+        slug: category.slug,
+      },
+    });
+  } catch (error) {
+    console.error("❌ Error deleting category:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error while deleting category",
+      error: error.message,
+    });
+  }
 });
 
 // @desc    Get category by slug

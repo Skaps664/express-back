@@ -20,7 +20,34 @@ const createUser = asyncHandler(async (req, res) => {
 
     // Generate tokens for immediate authentication after registration
     const refreshToken = await generateRefreshToken(newUser._id);
-    await updateUserRefreshToken(newUser._id, refreshToken);
+
+    // Update user with refresh token (same as login function)
+    try {
+      const updateResult = await User.findByIdAndUpdate(
+        newUser._id,
+        { refreshToken: refreshToken },
+        { new: false, select: "_id" }
+      ).maxTimeMS(5000);
+
+      if (!updateResult) {
+        console.error("❌ Failed to update user with refresh token");
+        return res.status(500).json({
+          success: false,
+          message: "Registration failed - could not save session",
+        });
+      }
+
+      console.log(
+        "✅ Refresh token stored successfully for user:",
+        newUser.email
+      );
+    } catch (error) {
+      console.error("❌ Error updating refresh token:", error);
+      return res.status(500).json({
+        success: false,
+        message: "Registration failed - session error",
+      });
+    }
 
     // Set the same cookie settings as login
     const isProduction = process.env.NODE_ENV === "production";
@@ -47,7 +74,7 @@ const createUser = asyncHandler(async (req, res) => {
 
     return res.status(201).json({
       success: true,
-      message: "Registration successful",
+      message: "Account created successfully, happy shopping!",
       user: {
         _id: newUser._id,
         name: newUser.name,
@@ -82,14 +109,16 @@ const loginUser = asyncHandler(async (req, res) => {
   if (!findUser) {
     return res.status(401).json({
       success: false,
-      message: "User not found",
+      message:
+        "Invalid email or password. Please check your credentials and try again.",
     });
   }
 
   if (!(await findUser.isPasswordMatched(password))) {
     return res.status(401).json({
       success: false,
-      message: "Incorrect password",
+      message:
+        "Invalid email or password. Please check your credentials and try again.",
     });
   }
 
@@ -125,18 +154,27 @@ const loginUser = asyncHandler(async (req, res) => {
 
   // Production-friendly cookie settings with local development support
   const isProduction = process.env.NODE_ENV === "production";
+  const isVercel = process.env.VERCEL === "1";
   const isLocal =
-    !isProduction || process.env.FRONTEND_URL?.includes("localhost");
+    !isProduction ||
+    process.env.FRONTEND_URL?.includes("localhost") ||
+    req.get("host")?.includes("localhost");
 
   const cookieOptions = {
     httpOnly: true,
     secure: isProduction && !isLocal, // Only secure in production, not for localhost
-    sameSite: isLocal ? "lax" : isProduction ? "none" : "lax", // Lax for localhost
+    sameSite: isLocal ? "lax" : isProduction || isVercel ? "none" : "lax", // none for cross-origin in production
     path: "/",
     domain: isLocal ? undefined : process.env.COOKIE_DOMAIN, // No domain for localhost
   };
 
-  console.log("🍪 Cookie settings:", { isProduction, isLocal, cookieOptions });
+  console.log("🍪 Cookie settings:", {
+    isProduction,
+    isVercel,
+    isLocal,
+    host: req.get("host"),
+    cookieOptions,
+  });
 
   res.cookie("refreshToken", refreshToken, {
     ...cookieOptions,
@@ -151,14 +189,17 @@ const loginUser = asyncHandler(async (req, res) => {
   return res.status(200).json({
     success: true,
     message: "Login successful",
-    _id: findUser._id,
-    name: findUser.name,
-    email: findUser.email,
-    mobile: findUser.mobile,
-    isAdmin: findUser.isAdmin,
+    user: {
+      _id: findUser._id,
+      name: findUser.name,
+      email: findUser.email,
+      mobile: findUser.mobile,
+      isAdmin: findUser.isAdmin,
+      role: findUser.isAdmin ? "admin" : "user",
+      createdAt: findUser.createdAt,
+      updatedAt: findUser.updatedAt,
+    },
     token: generateToken(findUser._id),
-    createdAt: findUser.createdAt,
-    updatedAt: findUser.updatedAt,
   });
 });
 

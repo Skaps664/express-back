@@ -560,16 +560,63 @@ const updateProduct = asyncHandler(async (req, res) => {
 const deleteProduct = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
-  const deletedProduct = await Product.findByIdAndDelete(id);
-  if (!deletedProduct) {
-    return res
-      .status(404)
-      .json({ success: false, message: "Product not found" });
+  console.log("🗑️ Attempting to delete product with ID:", id);
+
+  // Validate ObjectId format
+  if (!id || !id.match(/^[0-9a-fA-F]{24}$/)) {
+    console.log("❌ Invalid product ID format:", id);
+    return res.status(400).json({
+      success: false,
+      message: "Invalid product ID format",
+    });
   }
 
-  res
-    .status(200)
-    .json({ success: true, message: "Product deleted successfully" });
+  try {
+    // First check if product exists
+    const existingProduct = await Product.findById(id);
+    if (!existingProduct) {
+      console.log("❌ Product not found for ID:", id);
+      return res.status(404).json({
+        success: false,
+        message: "Product not found",
+      });
+    }
+
+    console.log(
+      "✅ Product found, proceeding with deletion:",
+      existingProduct.name
+    );
+
+    // Delete the product
+    const deletedProduct = await Product.findByIdAndDelete(id);
+
+    if (!deletedProduct) {
+      console.log("❌ Failed to delete product with ID:", id);
+      return res.status(500).json({
+        success: false,
+        message: "Failed to delete product",
+      });
+    }
+
+    console.log("✅ Product deleted successfully:", deletedProduct.name);
+
+    res.status(200).json({
+      success: true,
+      message: "Product deleted successfully",
+      deletedProduct: {
+        id: deletedProduct._id,
+        name: deletedProduct.name,
+        slug: deletedProduct.slug,
+      },
+    });
+  } catch (error) {
+    console.error("❌ Error deleting product:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error while deleting product",
+      error: error.message,
+    });
+  }
 });
 
 // Get product by slug

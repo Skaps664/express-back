@@ -79,6 +79,8 @@ app.use(
 // Enhanced CORS configuration for production
 const corsOptions = {
   origin: function (origin, callback) {
+    console.log("🔍 CORS Origin check:", origin);
+
     const allowedOrigins = [
       "https://solarexpress.pk",
       "https://www.solarexpress.pk",
@@ -90,10 +92,14 @@ const corsOptions = {
     ];
 
     // Allow requests with no origin (mobile apps, etc.)
-    if (!origin) return callback(null, true);
+    if (!origin) {
+      console.log("✅ No origin - allowing request");
+      return callback(null, true);
+    }
 
     // Check exact matches first
     if (allowedOrigins.includes(origin)) {
+      console.log("✅ Origin allowed:", origin);
       return callback(null, true);
     }
 
@@ -103,9 +109,20 @@ const corsOptions = {
       origin.includes("express-solar-store") &&
       origin.includes("vercel.app")
     ) {
+      console.log("✅ Vercel deployment allowed:", origin);
       return callback(null, true);
     }
 
+    // Allow any localhost for development
+    if (
+      origin &&
+      (origin.includes("localhost") || origin.includes("127.0.0.1"))
+    ) {
+      console.log("✅ Localhost allowed:", origin);
+      return callback(null, true);
+    }
+
+    console.log("❌ Origin blocked:", origin);
     return callback(new Error("Not allowed by CORS"));
   },
   credentials: true,
