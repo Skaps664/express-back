@@ -102,34 +102,34 @@ const createOrder = asyncHandler(async (req, res) => {
   });
 
   // Generate WhatsApp message text
-  let messageText = `🛒 *New Order Received!*\\n\\n`;
-  messageText += `📋 *Order Number:* ${order.orderNumber || "TBD"}\\n`;
-  messageText += `📅 *Date:* ${new Date().toLocaleDateString()}\\n\\n`;
+  let messageText = `🛒 *NEW ORDER RECEIVED*\n\n`;
+  messageText += `📋 *Order Number:* ${order.orderNumber || "TBD"}\n`;
+  messageText += `📅 *Date:* ${new Date().toLocaleDateString()}\n\n`;
 
-  messageText += `👤 *Customer Details:*\\n`;
-  messageText += `• Name: ${customerInfo.fullName}\\n`;
-  messageText += `• Phone: ${customerInfo.phoneNumber}\\n`;
-  messageText += `• WhatsApp: ${customerInfo.whatsappNumber}\\n`;
-  messageText += `• Email: ${customerInfo.email || "Not provided"}\\n`;
-  messageText += `• Address: ${customerInfo.shippingAddress}\\n\\n`;
+  messageText += `👤 *CUSTOMER DETAILS:*\n`;
+  messageText += `• Name: ${customerInfo.fullName}\n`;
+  messageText += `• Phone: ${customerInfo.phoneNumber}\n`;
+  messageText += `• WhatsApp: ${customerInfo.whatsappNumber}\n`;
+  messageText += `• Email: ${customerInfo.email || "Not provided"}\n`;
+  messageText += `• Address: ${customerInfo.shippingAddress}\n\n`;
 
   if (customerInfo.specialNotes) {
-    messageText += `📝 *Special Notes:* ${customerInfo.specialNotes}\\n\\n`;
+    messageText += `📝 *SPECIAL NOTES:* ${customerInfo.specialNotes}\n\n`;
   }
 
-  messageText += `🛍️ *Order Items:*\\n`;
+  messageText += `🛍️ *ORDER ITEMS:*\n`;
   orderItems.forEach((item, index) => {
-    messageText += `${index + 1}. ${item.name}\\n`;
-    messageText += `   • Quantity: ${item.quantity}\\n`;
-    messageText += `   • Price: PKR ${item.price.toLocaleString()}\\n`;
+    messageText += `${index + 1}. ${item.name}\n`;
+    messageText += `   • Quantity: ${item.quantity}\n`;
+    messageText += `   • Price: PKR ${item.price.toLocaleString()}\n`;
     if (item.selectedVariant) {
-      messageText += `   • Variant: ${item.selectedVariant}\\n`;
+      messageText += `   • Variant: ${item.selectedVariant}\n`;
     }
-    messageText += `\\n`;
+    messageText += `\n`;
   });
 
-  messageText += `💰 *Total Amount: PKR ${totalAmount.toLocaleString()}*\\n\\n`;
-  messageText += `Thank you for your order! We will contact you soon to confirm payment and delivery details.\\n\\n`;
+  messageText += `💰 *TOTAL AMOUNT: PKR ${totalAmount.toLocaleString()}*\n\n`;
+  messageText += `Thank you for your order! We will contact you soon to confirm payment and delivery details.\n\n`;
   messageText += `🔗 View details: ${process.env.FRONTEND_URL}/admin/orders`;
 
   // Store the WhatsApp message content in the order
@@ -137,7 +137,7 @@ const createOrder = asyncHandler(async (req, res) => {
 
   // Generate WhatsApp URL
   const whatsappURL = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(
-    messageText.replace(/\\n/g, "%0A")
+    messageText
   )}`;
 
   // Mark as WhatsApp message sent
@@ -160,7 +160,7 @@ const createOrder = asyncHandler(async (req, res) => {
       customerInfo: order.customerInfo,
     },
     whatsappURL,
-    whatsappMessage: messageText.replace(/\\n/g, "\n"),
+    whatsappMessage: messageText,
   });
 });
 

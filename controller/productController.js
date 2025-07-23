@@ -26,10 +26,27 @@ function getSortObject(sort) {
 
 // Get all products with sorting and pagination
 const getAllProducts = asyncHandler(async (req, res) => {
+  console.log("Request URL:", req.originalUrl);
+  console.log(
+    "Auth user:",
+    req.user ? { id: req.user._id, role: req.user.role } : "No user"
+  );
+
   const sort = req.query.sort || "newest";
   const sortObj = getSortObject(sort);
+  const isAdmin = req.originalUrl.includes("/admin/all");
+  console.log("Is admin request:", isAdmin);
 
+  // For admin routes, show all products. For public routes, only show active ones
   let query = {};
+
+  // Basic validation
+  try {
+    const totalProducts = await Product.countDocuments({});
+    console.log("Total products in database:", totalProducts);
+  } catch (error) {
+    console.error("Error counting products:", error);
+  }
 
   // Universal filters
   if (req.query.brand) query.brand = req.query.brand;
@@ -64,50 +81,40 @@ const getAllProducts = asyncHandler(async (req, res) => {
     ];
   }
 
-  // Dynamic specification filters
-  const specFilters = [];
+  // Dynamic specification filters - simplified
   Object.entries(req.query).forEach(([key, value]) => {
-    if (
-      ![
-        "brand",
-        "isFeatured",
-        "isBestSeller",
-        "price_min",
-        "price_max",
-        "rating_min",
-        "rating_max",
-        "sort",
-        "category",
-        "page",
-        "limit",
-        "search",
-      ].includes(key)
-    ) {
+    // Skip internal query params and empty values
+    const skipParams = [
+      "brand",
+      "isFeatured",
+      "isBestSeller",
+      "price_min",
+      "price_max",
+      "rating_min",
+      "rating_max",
+      "sort",
+      "category",
+      "page",
+      "limit",
+      "search",
+      "_t", // Skip timestamp parameter
+    ];
+
+    if (!skipParams.includes(key) && value && value.trim() !== "") {
+      const specFilter = {};
       if (key.endsWith("_min")) {
         const field = key.replace("_min", "");
-        specFilters.push({
-          "specifications.items": {
-            $elemMatch: { name: field, value: { $gte: Number(value) } },
-          },
-        });
+        specFilter[`specifications.${field}.min`] = Number(value);
       } else if (key.endsWith("_max")) {
         const field = key.replace("_max", "");
-        specFilters.push({
-          "specifications.items": {
-            $elemMatch: { name: field, value: { $lte: Number(value) } },
-          },
-        });
+        specFilter[`specifications.${field}.max`] = Number(value);
       } else {
-        specFilters.push({
-          "specifications.items": { $elemMatch: { name: key, value: value } },
-        });
+        // For exact matches
+        specFilter[`specifications.${key}`] = value;
       }
+      Object.assign(query, specFilter);
     }
   });
-
-  if (specFilters.length > 0) {
-    query.$and = (query.$and || []).concat(specFilters);
-  }
 
   // Pagination - moved before category filter to fix scoping issue
   const page = parseInt(req.query.page) > 0 ? parseInt(req.query.page) : 1;
@@ -139,18 +146,27 @@ const getAllProducts = asyncHandler(async (req, res) => {
   // Disable caching for search results
   res.setHeader("Cache-Control", "no-store");
 
+  // Detailed debug logging
+  console.log("Final query:", JSON.stringify(query, null, 2));
+  console.log("Sort config:", JSON.stringify(sortObj, null, 2));
+  console.log("Pagination:", { page, limit, skip });
+
   const [products, total] = await Promise.all([
     Product.find(query)
       .populate("brand", "name slug logo")
       .populate("category", "name slug")
+      .populate("subCategory", "name slug")
       .select(
-        "name slug price originalPrice discountPercentage stock images specifications isFeatured isBestSeller reviews viewCount variants"
+        "name slug price originalPrice discountPercentage stock images specifications isFeatured isBestSeller isNewArrival isActive reviews viewCount variants tags keyFeatures videos shippingInfo createdAt updatedAt"
       )
       .sort(sortObj)
       .skip(skip)
       .limit(limit),
     Product.countDocuments(query),
   ]);
+
+  console.log("Found products:", products.length);
+  console.log("Total products:", total);
 
   res.json({
     success: true,
@@ -748,8 +764,9 @@ const getFeaturedProducts = asyncHandler(async (req, res) => {
       Product.find({ isFeatured: true })
         .populate("brand", "name slug logo")
         .populate("category", "name slug")
+        .populate("subCategory", "name slug")
         .select(
-          "name slug price originalPrice discountPercentage stock images specifications isFeatured isBestSeller reviews viewCount variants"
+          "name slug price originalPrice discountPercentage stock images specifications isFeatured isBestSeller isNewArrival isActive reviews viewCount variants tags keyFeatures videos shippingInfo createdAt updatedAt"
         )
         .sort({ createdAt: -1 })
         .skip(skip)

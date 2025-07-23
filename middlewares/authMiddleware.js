@@ -211,30 +211,28 @@ async function attemptTokenRefresh(req, res, next, refreshToken) {
 
 const isAdmin = async (req, res, next) => {
   try {
-    // User is already loaded in authMiddleware with optimized query
-    if (!req.user) {
-      return res.status(401).json({
-        success: false,
-        message: "Authentication required",
-      });
-    }
-
-    // Check both isAdmin field and role field for backward compatibility
-    const userIsAdmin = req.user.isAdmin || req.user.role === "admin";
-
-    if (!userIsAdmin) {
-      return res.status(403).json({
-        success: false,
-        message: "Access denied, admin privileges required",
-      });
-    }
-
-    next();
-  } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: "Error checking admin privileges",
+    console.log("Checking admin access:", {
+      user: req.user
+        ? {
+            id: req.user._id,
+            role: req.user.role,
+            email: req.user.email,
+          }
+        : null,
     });
+
+    if (req.user && req.user.role === "admin") {
+      console.log("✅ Admin access granted");
+      next();
+    } else {
+      console.log("❌ Admin access denied");
+      res
+        .status(403)
+        .json({ success: false, message: "Admin access required" });
+    }
+  } catch (error) {
+    console.error("Admin check error:", error);
+    res.status(500).json({ success: false, message: "Server error" });
   }
 };
 

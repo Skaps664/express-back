@@ -89,6 +89,7 @@ const corsOptions = {
       "http://127.0.0.1:3000", // Alternative localhost
       "https://express-solar-store.vercel.app", // Vercel frontend
       "https://express-solar-store-git-ui-update-skaps664.vercel.app", // Vercel branch deployment
+      "https://express-back-production.up.railway.app", // Railway backend
     ];
 
     // Allow requests with no origin (mobile apps, etc.)

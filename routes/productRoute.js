@@ -45,7 +45,11 @@ router.post(
 router.get("/", cacheConfigs.products, getAllProducts);
 
 // Admin endpoint without caching for real-time data
-router.get("/admin/all", authMiddleware, isAdmin, getAllProducts);
+router.get("/admin/all", authMiddleware, isAdmin, async (req, res, next) => {
+  console.log("Admin products route accessed by:", req.user?.email);
+  console.log("User role:", req.user?.role);
+  return getAllProducts(req, res, next);
+});
 router.get("/featured", cacheConfigs.products, getFeaturedProducts); // GET featured products with caching
 router.get("/debog", debog);
 router.get("/filters/:slug", cacheConfigs.categories, getCategoryFilters); // Cache category filters
