@@ -101,12 +101,15 @@ const createOrder = asyncHandler(async (req, res) => {
     whatsappPhoneNumber: WHATSAPP_NUMBER,
   });
 
-  // Generate WhatsApp message text
-  let messageText = `🛒 *NEW ORDER RECEIVED*\n\n`;
-  messageText += `📋 *Order Number:* ${order.orderNumber || "TBD"}\n`;
-  messageText += `📅 *Date:* ${new Date().toLocaleDateString()}\n\n`;
+  // Save the order first to get the orderNumber
+  await order.save();
 
-  messageText += `👤 *CUSTOMER DETAILS:*\n`;
+  // Generate WhatsApp message text with proper formatting AFTER saving
+  let messageText = `🛒 NEW ORDER RECEIVED!\n\n`;
+  messageText += `📋 Order Number: ${order.orderNumber || order._id}\n`;
+  messageText += `📅 Date: ${new Date().toLocaleDateString()}\n\n`;
+
+  messageText += `👤 CUSTOMER DETAILS:\n`;
   messageText += `• Name: ${customerInfo.fullName}\n`;
   messageText += `• Phone: ${customerInfo.phoneNumber}\n`;
   messageText += `• WhatsApp: ${customerInfo.whatsappNumber}\n`;
@@ -114,10 +117,10 @@ const createOrder = asyncHandler(async (req, res) => {
   messageText += `• Address: ${customerInfo.shippingAddress}\n\n`;
 
   if (customerInfo.specialNotes) {
-    messageText += `📝 *SPECIAL NOTES:* ${customerInfo.specialNotes}\n\n`;
+    messageText += `📝 SPECIAL NOTES: ${customerInfo.specialNotes}\n\n`;
   }
 
-  messageText += `🛍️ *ORDER ITEMS:*\n`;
+  messageText += `🛍️ ORDER ITEMS:\n`;
   orderItems.forEach((item, index) => {
     messageText += `${index + 1}. ${item.name}\n`;
     messageText += `   • Quantity: ${item.quantity}\n`;
@@ -128,7 +131,7 @@ const createOrder = asyncHandler(async (req, res) => {
     messageText += `\n`;
   });
 
-  messageText += `💰 *TOTAL AMOUNT: PKR ${totalAmount.toLocaleString()}*\n\n`;
+  messageText += `💰 TOTAL AMOUNT: PKR ${totalAmount.toLocaleString()}\n\n`;
   messageText += `Thank you for your order! We will contact you soon to confirm payment and delivery details.\n\n`;
   messageText += `🔗 View details: ${process.env.FRONTEND_URL}/admin/orders`;
 
@@ -140,7 +143,7 @@ const createOrder = asyncHandler(async (req, res) => {
     messageText
   )}`;
 
-  // Mark as WhatsApp message sent
+  // Mark as WhatsApp message sent and save again with updated message
   order.whatsappSent = true;
   order.emailSent = false; // We'll implement email later
   await order.save();
@@ -272,19 +275,151 @@ const updateOrderStatus = asyncHandler(async (req, res) => {
 
 /**
  * @desc    Get all orders (admin only)
- * @route   GET /api/orders/admin
+ * @route   GET /api/orders/admin/all
  * @access  Admin
  */
 const getAllOrders = asyncHandler(async (req, res) => {
-  const orders = await Order.find({}).sort({ createdAt: -1 }).populate({
-    path: "user",
-    select: "name email mobile",
-  });
+  const { status, page = 1, limit = 50 } = req.query;
+
+  let query = {};
+  if (status && status !== "all") {
+    query.status = status;
+  }
+
+  const skip = (parseInt(page) - 1) * parseInt(limit);
+
+  const orders = await Order.find(query)
+    .sort({ createdAt: -1 })
+    .skip(skip)
+    .limit(parseInt(limit))
+    .populate({
+      path: "user",
+      select: "name email mobile role createdAt",
+    })
+    .populate({
+      path: "items.product",
+      select: "name images slug",
+    });
+
+  const totalOrders = await Order.countDocuments(query);
+
+  // Get order statistics
+  const statusCounts = await Order.aggregate([
+    {
+      $group: {
+        _id: "$status",
+        count: { $sum: 1 },
+      },
+    },
+  ]);
+
+  const stats = {
+    total: totalOrders,
+    pending: 0,
+    confirmed: 0,
+    processing: 0,
+    shipped: 0,
+    delivered: 0,
+    cancelled: 0,
+    ...statusCounts.reduce((acc, stat) => {
+      acc[stat._id.toLowerCase()] = stat.count;
+      return acc;
+    }, {}),
+  };
 
   res.status(200).json({
     success: true,
     orders,
+    pagination: {
+      page: parseInt(page),
+      limit: parseInt(limit),
+      total: totalOrders,
+      pages: Math.ceil(totalOrders / parseInt(limit)),
+    },
+    stats,
   });
+});
+
+/**
+ * @desc    Export orders to CSV (admin only)
+ * @route   GET /api/orders/admin/export
+ * @access  Admin
+ */
+const exportOrders = asyncHandler(async (req, res) => {
+  const { status, startDate, endDate } = req.query;
+
+  let query = {};
+
+  if (status && status !== "all") {
+    query.status = status;
+  }
+
+  if (startDate || endDate) {
+    query.createdAt = {};
+    if (startDate) query.createdAt.$gte = new Date(startDate);
+    if (endDate) query.createdAt.$lte = new Date(endDate);
+  }
+
+  const orders = await Order.find(query)
+    .sort({ createdAt: -1 })
+    .populate({
+      path: "user",
+      select: "name email mobile",
+    })
+    .populate({
+      path: "items.product",
+      select: "name",
+    });
+
+  // Convert to CSV format
+  const csvHeader = [
+    "Order Number",
+    "Date",
+    "Customer Name",
+    "Customer Email",
+    "Customer Phone",
+    "Customer WhatsApp",
+    "Logged User Name",
+    "Logged User Email",
+    "Items",
+    "Total Amount",
+    "Status",
+    "Payment Status",
+    "Shipping Address",
+    "Special Notes",
+  ].join(",");
+
+  const csvRows = orders.map((order) => {
+    const itemsText = order.items
+      .map((item) => `${item.name} (${item.quantity}x PKR ${item.price})`)
+      .join("; ");
+
+    return [
+      order.orderNumber || order._id,
+      new Date(order.createdAt).toLocaleDateString(),
+      order.customerInfo?.fullName || "",
+      order.customerInfo?.email || "",
+      order.customerInfo?.phoneNumber || "",
+      order.customerInfo?.whatsappNumber || "",
+      order.user?.name || "",
+      order.user?.email || "",
+      `"${itemsText}"`,
+      order.totalAmount || 0,
+      order.status || "Pending",
+      order.paymentStatus || "Pending",
+      `"${order.customerInfo?.shippingAddress || ""}"`,
+      `"${order.customerInfo?.specialNotes || order.orderNotes || ""}"`,
+    ].join(",");
+  });
+
+  const csvContent = [csvHeader, ...csvRows].join("\n");
+
+  res.setHeader("Content-Type", "text/csv");
+  res.setHeader(
+    "Content-Disposition",
+    `attachment; filename=orders-${new Date().toISOString().split("T")[0]}.csv`
+  );
+  res.send(csvContent);
 });
 
 /**
@@ -372,5 +507,6 @@ module.exports = {
   getOrderById,
   updateOrderStatus,
   getAllOrders,
+  exportOrders,
   generateWhatsappLink,
 };

@@ -77,6 +77,14 @@ var userSchema = new mongoose.Schema(
       default: false,
       index: true,
     }, // Blocked users cannot access certain features
+    city: {
+      type: String,
+      trim: true,
+    },
+    postalCode: {
+      type: String,
+      trim: true,
+    },
     createdAt: {
       type: Date,
       default: Date.now,

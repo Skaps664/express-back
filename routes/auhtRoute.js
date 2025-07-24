@@ -25,11 +25,19 @@ const {
   getUserProfile,
   recordPurchase,
   getPurchaseHistory,
+  changePassword,
+  updateUserProfile,
+  getUserAddresses,
+  addUserAddress,
+  updateUserAddress,
+  deleteUserAddress,
 } = require("../controller/userController");
 
 router.post("/register", createUser);
 
 router.get("/me", authMiddleware, getCurrentUser);
+router.get("/profile", authMiddleware, getUserProfile);
+router.put("/profile", authMiddleware, updateUser);
 
 router.post("/login", loginUser);
 router.post("/logout", authMiddleware, logoutUser);
@@ -52,17 +60,27 @@ router.get("/admin/stats", authMiddleware, isAdmin, getUserStats);
 router.get("/admin/users", authMiddleware, isAdmin, getUsersAdmin);
 router.get("/admin/profile/:id", authMiddleware, isAdmin, getUserProfile);
 
-router.get("/:id", authMiddleware, isAdmin, getSingleUser);
+// Change password route (MUST come before /:id routes)
+router.put("/change-password", authMiddleware, changePassword);
 
-router.delete("/:id", authMiddleware, isAdmin, deleteUser);
+// Profile management routes (MUST come before /:id routes)
+router.put("/profile", authMiddleware, updateUserProfile);
 
-router.put("/:id", authMiddleware, isAdmin, updateUser);
-
-router.put("/block/:id", authMiddleware, isAdmin, blockUser);
-router.put("/unblock/:id", authMiddleware, isAdmin, unBlockUser);
+// Address management routes (MUST come before /:id routes)
+router.get("/addresses", authMiddleware, getUserAddresses);
+router.post("/addresses", authMiddleware, addUserAddress);
+router.put("/addresses/:addressId", authMiddleware, updateUserAddress);
+router.delete("/addresses/:addressId", authMiddleware, deleteUserAddress);
 
 // Purchase history routes
 router.post("/purchase/record", authMiddleware, recordPurchase);
 router.get("/purchase/history", authMiddleware, getPurchaseHistory);
+
+// Generic parameterized routes (MUST come after specific routes)
+router.get("/:id", authMiddleware, isAdmin, getSingleUser);
+router.delete("/:id", authMiddleware, isAdmin, deleteUser);
+router.put("/:id", authMiddleware, isAdmin, updateUser);
+router.put("/block/:id", authMiddleware, isAdmin, blockUser);
+router.put("/unblock/:id", authMiddleware, isAdmin, unBlockUser);
 
 module.exports = router;

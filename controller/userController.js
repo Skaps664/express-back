@@ -427,14 +427,44 @@ const deleteUser = asyncHandler(async (req, res) => {
 
 // UPDATE USER
 const updateUser = asyncHandler(async (req, res) => {
-  const user = await User.findById(req.params.id);
-  if (user) {
-    const updatedUser = await User.findByIdAndUpdate(req.params.id, req.body, {
-      new: true,
+  // Determine which user to update
+  const userIdToUpdate = req.params.id || req.user._id;
+
+  // Check authorization for updating other users
+  if (
+    req.params.id &&
+    req.user._id.toString() !== req.params.id &&
+    req.user.role !== "admin"
+  ) {
+    return res.status(403).json({
+      success: false,
+      message: "Access denied",
     });
+  }
+
+  // Restrict what regular users can update about themselves
+  let allowedUpdates = req.body;
+  if (!req.params.id || req.user._id.toString() === userIdToUpdate) {
+    // Regular user updating their own profile - restrict fields
+    const { password, isAdmin, role, isBlocked, refreshToken, ...userUpdates } =
+      req.body;
+    allowedUpdates = userUpdates;
+  }
+
+  const user = await User.findById(userIdToUpdate);
+  if (user) {
+    const updatedUser = await User.findByIdAndUpdate(
+      userIdToUpdate,
+      allowedUpdates,
+      {
+        new: true,
+      }
+    ).select("-password -refreshToken");
+
     return res.status(200).json({
       success: true,
-      data: updatedUser,
+      user: updatedUser,
+      message: "Profile updated successfully",
     });
   } else {
     return res.status(404).json({
@@ -748,7 +778,22 @@ const getUsersAdmin = asyncHandler(async (req, res) => {
 // GET USER PROFILE WITH DETAILED INFO
 const getUserProfile = asyncHandler(async (req, res) => {
   try {
-    const user = await User.findById(req.params.id)
+    // If there's a param ID, it's an admin request for another user's profile
+    const userId = req.params.id || req.user._id;
+
+    // Check authorization for viewing other users' profiles
+    if (
+      req.params.id &&
+      req.user._id.toString() !== req.params.id &&
+      req.user.role !== "admin"
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: "Access denied",
+      });
+    }
+
+    const user = await User.findById(userId)
       .select("-password -refreshToken")
       .populate("wishlist", "name price images")
       .populate("cart.product", "name price images");
@@ -779,7 +824,7 @@ const getUserProfile = asyncHandler(async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      data: userProfile,
+      user: userProfile,
     });
   } catch (error) {
     return res.status(500).json({
@@ -884,6 +929,331 @@ const getPurchaseHistory = asyncHandler(async (req, res) => {
   }
 });
 
+// UPDATE USER PROFILE (restricted for self-updates)
+const updateUserProfile = asyncHandler(async (req, res) => {
+  const userId = req.user._id;
+
+  try {
+    // Only allow certain fields to be updated by users themselves
+    const { mobile, city, postalCode } = req.body;
+
+    const allowedUpdates = {};
+    if (mobile !== undefined) allowedUpdates.mobile = mobile;
+    if (city !== undefined) allowedUpdates.city = city;
+    if (postalCode !== undefined) allowedUpdates.postalCode = postalCode;
+
+    const updatedUser = await User.findByIdAndUpdate(userId, allowedUpdates, {
+      new: true,
+    }).select("-password -refreshToken");
+
+    if (!updatedUser) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      user: updatedUser,
+      message: "Profile updated successfully",
+    });
+  } catch (error) {
+    console.error("Error updating profile:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error updating profile",
+      error: error.message,
+    });
+  }
+});
+
+// GET USER ADDRESSES
+const getUserAddresses = asyncHandler(async (req, res) => {
+  const userId = req.user._id;
+
+  try {
+    const user = await User.findById(userId).select("adress");
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      addresses: user.adress || [],
+    });
+  } catch (error) {
+    console.error("Error fetching addresses:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error fetching addresses",
+      error: error.message,
+    });
+  }
+});
+
+// ADD USER ADDRESS
+const addUserAddress = asyncHandler(async (req, res) => {
+  const userId = req.user._id;
+  const {
+    label,
+    fullName,
+    phoneNumber,
+    street,
+    city,
+    state,
+    postalCode,
+    country,
+    isDefault,
+  } = req.body;
+
+  try {
+    // Validate required fields
+    if (
+      !fullName ||
+      !phoneNumber ||
+      !street ||
+      !city ||
+      !postalCode ||
+      !country
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "All required address fields must be provided",
+      });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    // If this address is set as default, remove default from other addresses
+    if (isDefault) {
+      user.adress.forEach((addr) => {
+        addr.isDefault = false;
+      });
+    }
+
+    // Add new address
+    const newAddress = {
+      label: label || "Home",
+      fullName,
+      phoneNumber,
+      street,
+      city,
+      state,
+      postalCode,
+      country,
+      isDefault: isDefault || user.adress.length === 0, // First address is default
+    };
+
+    user.adress.push(newAddress);
+    await user.save();
+
+    res.status(201).json({
+      success: true,
+      address: newAddress,
+      message: "Address added successfully",
+    });
+  } catch (error) {
+    console.error("Error adding address:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error adding address",
+      error: error.message,
+    });
+  }
+});
+
+// UPDATE USER ADDRESS
+const updateUserAddress = asyncHandler(async (req, res) => {
+  const userId = req.user._id;
+  const { addressId } = req.params;
+  const {
+    label,
+    fullName,
+    phoneNumber,
+    street,
+    city,
+    state,
+    postalCode,
+    country,
+    isDefault,
+  } = req.body;
+
+  try {
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    const addressIndex = user.adress.findIndex(
+      (addr) => addr._id.toString() === addressId
+    );
+    if (addressIndex === -1) {
+      return res.status(404).json({
+        success: false,
+        message: "Address not found",
+      });
+    }
+
+    // If this address is set as default, remove default from other addresses
+    if (isDefault) {
+      user.adress.forEach((addr) => {
+        addr.isDefault = false;
+      });
+    }
+
+    // Update address
+    const addressToUpdate = user.adress[addressIndex];
+    if (label !== undefined) addressToUpdate.label = label;
+    if (fullName !== undefined) addressToUpdate.fullName = fullName;
+    if (phoneNumber !== undefined) addressToUpdate.phoneNumber = phoneNumber;
+    if (street !== undefined) addressToUpdate.street = street;
+    if (city !== undefined) addressToUpdate.city = city;
+    if (state !== undefined) addressToUpdate.state = state;
+    if (postalCode !== undefined) addressToUpdate.postalCode = postalCode;
+    if (country !== undefined) addressToUpdate.country = country;
+    if (isDefault !== undefined) addressToUpdate.isDefault = isDefault;
+
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      address: addressToUpdate,
+      message: "Address updated successfully",
+    });
+  } catch (error) {
+    console.error("Error updating address:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error updating address",
+      error: error.message,
+    });
+  }
+});
+
+// DELETE USER ADDRESS
+const deleteUserAddress = asyncHandler(async (req, res) => {
+  const userId = req.user._id;
+  const { addressId } = req.params;
+
+  try {
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    const addressIndex = user.adress.findIndex(
+      (addr) => addr._id.toString() === addressId
+    );
+    if (addressIndex === -1) {
+      return res.status(404).json({
+        success: false,
+        message: "Address not found",
+      });
+    }
+
+    // Check if deleting default address
+    const wasDefault = user.adress[addressIndex].isDefault;
+
+    // Remove address
+    user.adress.splice(addressIndex, 1);
+
+    // If deleted address was default and there are other addresses, make the first one default
+    if (wasDefault && user.adress.length > 0) {
+      user.adress[0].isDefault = true;
+    }
+
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Address deleted successfully",
+    });
+  } catch (error) {
+    console.error("Error deleting address:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error deleting address",
+      error: error.message,
+    });
+  }
+});
+
+// CHANGE PASSWORD
+const changePassword = asyncHandler(async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+  const userId = req.user._id;
+
+  try {
+    // Validate input
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({
+        success: false,
+        message: "Both current password and new password are required",
+      });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: "New password must be at least 6 characters long",
+      });
+    }
+
+    // Find user with password included
+    const user = await User.findById(userId).select("+password");
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    // Verify current password
+    const isCurrentPasswordCorrect = await user.isPasswordMatched(
+      currentPassword
+    );
+    if (!isCurrentPasswordCorrect) {
+      return res.status(400).json({
+        success: false,
+        message: "Current password is incorrect",
+      });
+    }
+
+    // Update password
+    user.password = newPassword;
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Password changed successfully",
+    });
+  } catch (error) {
+    console.error("Error changing password:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error changing password",
+      error: error.message,
+    });
+  }
+});
+
 module.exports = {
   createUser,
   loginUser,
@@ -906,4 +1276,10 @@ module.exports = {
   getUserProfile,
   recordPurchase,
   getPurchaseHistory,
+  changePassword,
+  updateUserProfile,
+  getUserAddresses,
+  addUserAddress,
+  updateUserAddress,
+  deleteUserAddress,
 };
