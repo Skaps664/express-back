@@ -18,6 +18,8 @@ const {
   getProductBySlug,
   getProductsByCategory,
   getFeaturedProducts,
+  getBestSellerProducts,
+  getNewArrivalProducts,
   updateProduct,
   deleteProduct,
   debog,
@@ -51,6 +53,8 @@ router.get("/admin/all", authMiddleware, isAdmin, async (req, res, next) => {
   return getAllProducts(req, res, next);
 });
 router.get("/featured", cacheConfigs.products, getFeaturedProducts); // GET featured products with caching
+router.get("/best-sellers", cacheConfigs.products, getBestSellerProducts); // GET best seller products with caching
+router.get("/new-arrivals", cacheConfigs.products, getNewArrivalProducts); // GET new arrival products with caching
 router.get("/debog", debog);
 router.get("/filters/:slug", cacheConfigs.categories, getCategoryFilters); // Cache category filters
 router.get("/category/:slug", cacheConfigs.products, getProductsByCategory); // Cache category products

@@ -793,6 +793,88 @@ const getFeaturedProducts = asyncHandler(async (req, res) => {
   }
 });
 
+// Get Best Seller Products
+const getBestSellerProducts = asyncHandler(async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) > 0 ? parseInt(req.query.page) : 1;
+    const limit =
+      parseInt(req.query.limit) > 0 ? parseInt(req.query.limit) : 12;
+    const skip = (page - 1) * limit;
+
+    const [products, total] = await Promise.all([
+      Product.find({ isBestSeller: true })
+        .populate("brand", "name slug logo")
+        .populate("category", "name slug")
+        .populate("subCategory", "name slug")
+        .select(
+          "name slug price originalPrice discountPercentage stock images specifications isFeatured isBestSeller isNewArrival isActive reviews viewCount variants tags keyFeatures videos shippingInfo createdAt updatedAt"
+        )
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit),
+      Product.countDocuments({ isBestSeller: true }),
+    ]);
+
+    res.json({
+      success: true,
+      products,
+      pagination: {
+        page,
+        limit,
+        total,
+        pages: Math.ceil(total / limit),
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching best seller products:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch best seller products",
+    });
+  }
+});
+
+// Get New Arrival Products
+const getNewArrivalProducts = asyncHandler(async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) > 0 ? parseInt(req.query.page) : 1;
+    const limit =
+      parseInt(req.query.limit) > 0 ? parseInt(req.query.limit) : 12;
+    const skip = (page - 1) * limit;
+
+    const [products, total] = await Promise.all([
+      Product.find({ isNewArrival: true })
+        .populate("brand", "name slug logo")
+        .populate("category", "name slug")
+        .populate("subCategory", "name slug")
+        .select(
+          "name slug price originalPrice discountPercentage stock images specifications isFeatured isBestSeller isNewArrival isActive reviews viewCount variants tags keyFeatures videos shippingInfo createdAt updatedAt"
+        )
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit),
+      Product.countDocuments({ isNewArrival: true }),
+    ]);
+
+    res.json({
+      success: true,
+      products,
+      pagination: {
+        page,
+        limit,
+        total,
+        pages: Math.ceil(total / limit),
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching new arrival products:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch new arrival products",
+    });
+  }
+});
+
 // Parse helper function
 function parseIfString(val) {
   try {
@@ -810,6 +892,8 @@ module.exports = {
   getProductBySlug,
   getProductsByCategory,
   getFeaturedProducts,
+  getBestSellerProducts,
+  getNewArrivalProducts,
   getCategoryFilters,
   debog,
   uploadImages,
