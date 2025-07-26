@@ -6,10 +6,11 @@ const morgan = require("morgan");
 const path = require("path");
 const compression = require("compression");
 
-// Load global .env file first
-dotenv.config({ path: "../.env" });
-// Then load local config which can reference process.env variables
-// dotenv.config({ path: "./config/config.env" });
+// Load environment variables - Railway will provide them automatically
+// For local development, load from config.env
+if (process.env.NODE_ENV !== "production") {
+  dotenv.config({ path: "./config/config.env" });
+}
 
 const { errorMiddleware } = require("./error/error");
 const { trackVisitMiddleware } = require("./middlewares/analyticsMiddleware");
@@ -22,8 +23,6 @@ const dbConnect = require("./database/dbConnect");
 
 // Initialize Redis for high-scale caching
 initializeRedis();
-
-dotenv.config();
 
 // Initialize models AFTER dotenv config
 require("./models");
@@ -276,6 +275,16 @@ app.get("/api/metrics", async (req, res) => {
   };
 
   res.status(200).json(metrics);
+});
+
+// Root endpoint for Railway health check
+app.get("/", (req, res) => {
+  res.status(200).json({
+    message: "Solar Express API is running",
+    status: "ok",
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV,
+  });
 });
 
 dbConnect();
