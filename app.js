@@ -9,7 +9,7 @@ const compression = require("compression");
 // Load global .env file first
 dotenv.config({ path: "../.env" });
 // Then load local config which can reference process.env variables
-dotenv.config({ path: "./config/config.env" });
+// dotenv.config({ path: "./config/config.env" });
 
 const { errorMiddleware } = require("./error/error");
 const { trackVisitMiddleware } = require("./middlewares/analyticsMiddleware");
