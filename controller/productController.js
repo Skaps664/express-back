@@ -875,6 +875,45 @@ const getNewArrivalProducts = asyncHandler(async (req, res) => {
   }
 });
 
+// Search products for analytics
+const searchProducts = asyncHandler(async (req, res) => {
+  const { q } = req.query;
+
+  if (!q) {
+    return res.json({ success: true, data: [] });
+  }
+
+  try {
+    const searchRegex = new RegExp(
+      q.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, "\\$&"),
+      "i"
+    );
+
+    const products = await Product.find({
+      $or: [
+        { name: searchRegex },
+        { slug: searchRegex },
+        { description: searchRegex },
+        { tags: searchRegex },
+        { "specifications.items.value": searchRegex },
+      ],
+    })
+      .select("name slug")
+      .limit(20);
+
+    res.json({
+      success: true,
+      data: products,
+    });
+  } catch (error) {
+    console.error("Product search error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error searching products",
+    });
+  }
+});
+
 // Parse helper function
 function parseIfString(val) {
   try {
@@ -897,4 +936,5 @@ module.exports = {
   getCategoryFilters,
   debog,
   uploadImages,
+  searchProducts,
 };

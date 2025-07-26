@@ -25,6 +25,7 @@ const {
   debog,
   getCategoryFilters,
   uploadImages,
+  searchProducts,
 } = require("../controller/productController");
 
 // Create product route with file upload and cache invalidation
@@ -88,6 +89,9 @@ router.delete(
     await invalidateCache.all();
   }
 );
+
+// Search endpoint for analytics
+router.get("/search", authMiddleware, searchProducts);
 
 // This should be last as it's a catch-all route with a parameter
 router.get("/:slug", cacheConfigs.productDetail, getProductBySlug); // GET product by slug with caching

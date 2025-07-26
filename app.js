@@ -37,6 +37,8 @@ const orderRoute = require("./routes/orderRoute");
 const offerRoute = require("./routes/offerRoute");
 const brandPageSettingsRoute = require("./routes/brandPageSettingsRoute");
 const entitySearchRoute = require("./routes/entitySearchRoute");
+const dashboardRoute = require("./routes/dashboardRoute");
+const testRoute = require("./routes/testRoute");
 
 const app = express();
 
@@ -204,11 +206,13 @@ app.use("/api/brands", rateLimiters.products, brandRoute);
 app.use("/api/category", rateLimiters.products, categoryRoute);
 app.use("/api/reviews", reviewRoute);
 app.use("/api/analytics", rateLimiters.admin, analyticsRoute);
+app.use("/api/dashboard", rateLimiters.admin, dashboardRoute);
 app.use("/api/cart", rateLimiters.cart, cartRoute);
 app.use("/api/orders", rateLimiters.orders, orderRoute);
 app.use("/api/offers", offerRoute);
 app.use("/api/brand-page-settings", brandPageSettingsRoute);
 app.use("/api/entity-search", rateLimiters.products, entitySearchRoute);
+app.use("/api/test", testRoute);
 
 // Health check endpoint with detailed metrics for monitoring
 app.get("/api/health", async (req, res) => {

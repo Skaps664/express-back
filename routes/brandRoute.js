@@ -15,6 +15,7 @@ const {
   updateBrand,
   deleteBrand,
   getProductsByBrandAndCategory,
+  searchBrands,
 } = require("../controller/brandController");
 
 const router = express.Router();
@@ -38,6 +39,7 @@ router.put(
 router.get("/", getAllBrands);
 router.get("/admin/all", authMiddleware, isAdmin, getAllBrandsAdmin);
 router.get("/featured", getFeaturedBrands);
+router.get("/search", authMiddleware, searchBrands);
 // The order of these routes is important - more specific routes should come first
 router.get("/:slug/products", getBrandProducts);
 router.get("/:brandSlug/:categorySlug", getProductsByBrandAndCategory);

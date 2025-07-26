@@ -3,6 +3,8 @@ const Order = require("../models/OrderModel");
 const User = require("../models/UserModel");
 const Product = require("../models/ProductsModel");
 const validateMongoId = require("../utils/validateMongoId");
+const { sendOrderNotificationEmail } = require("../utils/emailService");
+const { sendOrderWhatsAppNotification } = require("../utils/whatsappService");
 
 // Configure WhatsApp business number here
 const WHATSAPP_NUMBER = "923259327819"; // Replace with your business WhatsApp number
@@ -148,9 +150,60 @@ const createOrder = asyncHandler(async (req, res) => {
   order.emailSent = false; // We'll implement email later
   await order.save();
 
-  // Clear user's cart
+  // Update user's purchase history
+  const purchaseHistoryItems = orderItems.map((item) => ({
+    product: item.product._id,
+    purchaseDate: new Date(),
+    quantity: item.quantity,
+    price: item.price,
+    variant: item.selectedVariant,
+    orderReference: order.orderNumber || order._id.toString(),
+  }));
+
+  // Add items to user's purchase history
+  user.purchaseHistory.push(...purchaseHistoryItems);
+
+  // Clear user's cart and save
   user.cart = [];
   await user.save();
+
+  // Send admin notifications (Email + WhatsApp)
+  try {
+    console.log("📧 Sending admin notifications...");
+
+    // Send email notification to admin
+    const emailResult = await sendOrderNotificationEmail({
+      ...order.toObject(),
+      customerInfo,
+      items: orderItems,
+      totalAmount,
+      orderNumber: order.orderNumber || order._id,
+      createdAt: order.createdAt,
+    });
+
+    // Send WhatsApp notification to admin
+    const whatsappResult = await sendOrderWhatsAppNotification({
+      ...order.toObject(),
+      customerInfo,
+      items: orderItems,
+      totalAmount,
+      orderNumber: order.orderNumber || order._id,
+      createdAt: order.createdAt,
+    });
+
+    // Update order with notification status
+    order.emailSent = emailResult.success;
+    order.adminNotificationSent = emailResult.success || whatsappResult.success;
+    await order.save();
+
+    console.log("✅ Admin notifications sent:", {
+      email: emailResult.success,
+      whatsapp: whatsappResult.success,
+    });
+  } catch (notificationError) {
+    console.error("❌ Error sending admin notifications:", notificationError);
+    // Don't fail the order if notifications fail
+  }
 
   res.status(201).json({
     success: true,

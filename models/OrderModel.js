@@ -140,6 +140,10 @@ const orderSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    adminNotificationSent: {
+      type: Boolean,
+      default: false,
+    },
     adminNotes: {
       type: String,
       trim: true,

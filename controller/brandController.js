@@ -462,6 +462,44 @@ const getProductsByBrandAndCategory = asyncHandler(async (req, res) => {
   res.json(products);
 });
 
+// Search brands for analytics
+const searchBrands = asyncHandler(async (req, res) => {
+  const { q } = req.query;
+
+  if (!q) {
+    return res.json({ success: true, data: [] });
+  }
+
+  try {
+    const searchRegex = new RegExp(
+      q.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, "\\$&"),
+      "i"
+    );
+
+    const brands = await Brand.find({
+      $or: [
+        { name: searchRegex },
+        { slug: searchRegex },
+        { description: searchRegex },
+        { tagline: searchRegex },
+      ],
+    })
+      .select("name slug")
+      .limit(20);
+
+    res.json({
+      success: true,
+      data: brands,
+    });
+  } catch (error) {
+    console.error("Brand search error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error searching brands",
+    });
+  }
+});
+
 module.exports = {
   createBrand,
   getBrandBySlug,
@@ -472,4 +510,5 @@ module.exports = {
   getProductsByBrandAndCategory,
   getAllBrandsAdmin,
   getBrandProducts,
+  searchBrands,
 };
