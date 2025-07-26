@@ -167,7 +167,7 @@ async function attemptTokenRefresh(req, res, next, refreshToken) {
     }
 
     // Generate new access token
-    const { generateToken } = require("../config/jwtToken");
+    const { generateToken } = require("../utils/jwtToken");
     const newAccessToken = generateToken(user._id);
 
     console.log("✅ Token refresh successful for user:", user.email);

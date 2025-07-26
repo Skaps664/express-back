@@ -1,7 +1,7 @@
 const Product = require("../models/ProductsModel");
 const User = require("../models/UserModel");
-const { generateToken } = require("../config/jwtToken");
-const { generateRefreshToken } = require("../config/refreshToken");
+const { generateToken } = require("../utils/jwtToken");
+const { generateRefreshToken } = require("../utils/refreshToken");
 const jwt = require("jsonwebtoken");
 const asyncHandler = require("express-async-handler");
 
