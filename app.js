@@ -7,11 +7,16 @@ const path = require("path");
 const compression = require("compression");
 
 // Load environment variables - Railway will provide them automatically
-// For local development, load from config.env
+// For local development, load from .env file in backend directory
 if (process.env.NODE_ENV !== "production") {
-  dotenv.config({ path: "./config/config.env" });
+  dotenv.config({ path: "./.env" });
+} else {
+  // In production, if environment variables are not set by Railway, load from .env as fallback
+  if (!process.env.MONGODB_URI) {
+    console.log("🔧 Loading .env as fallback for production...");
+    dotenv.config({ path: "./.env" });
+  }
 }
-
 const { errorMiddleware } = require("./error/error");
 const { trackVisitMiddleware } = require("./middlewares/analyticsMiddleware");
 const { rateLimiters, ddosProtection } = require("./middlewares/rateLimiting");
