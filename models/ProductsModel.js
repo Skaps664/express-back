@@ -189,6 +189,11 @@ const productSchema = new mongoose.Schema(
       ref: "Products",
       default: [],
     },
+    relatedBlogs: {
+      type: [mongoose.Schema.Types.ObjectId],
+      ref: "Blog",
+      default: [],
+    },
 
     // Metadata
     createdBy: {

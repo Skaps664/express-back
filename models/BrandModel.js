@@ -66,6 +66,13 @@ const brandSchema = new mongoose.Schema(
       default: 0,
     },
 
+    // Blog References
+    relatedBlogs: {
+      type: [mongoose.Schema.Types.ObjectId],
+      ref: "Blog",
+      default: [],
+    },
+
     // Status Flags
     isFeatured: {
       type: Boolean,

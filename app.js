@@ -47,6 +47,8 @@ const brandPageSettingsRoute = require("./routes/brandPageSettingsRoute");
 const entitySearchRoute = require("./routes/entitySearchRoute");
 const dashboardRoute = require("./routes/dashboardRoute");
 const testRoute = require("./routes/testRoute");
+const blogRoute = require("./routes/blogRoute");
+const blogCategoryRoute = require("./routes/blogCategoryRoute");
 
 const app = express();
 
@@ -220,6 +222,8 @@ app.use("/api/orders", rateLimiters.orders, orderRoute);
 app.use("/api/offers", offerRoute);
 app.use("/api/brand-page-settings", brandPageSettingsRoute);
 app.use("/api/entity-search", rateLimiters.products, entitySearchRoute);
+app.use("/api/blogs", blogRoute);
+app.use("/api/blog-categories", blogCategoryRoute);
 app.use("/api/test", testRoute);
 
 // Health check endpoint with detailed metrics for monitoring
@@ -284,15 +288,28 @@ app.get("/api/metrics", async (req, res) => {
 
 // Root endpoint for Railway health check
 app.get("/", (req, res) => {
+  console.log("🔍 Root endpoint hit from:", req.ip, req.headers["user-agent"]);
   res.status(200).json({
     message: "Solar Express API is running",
     status: "ok",
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV,
+    port: process.env.PORT,
+    host: req.headers.host,
   });
 });
 
 dbConnect();
+
+// Create performance indexes after DB connection
+setTimeout(async () => {
+  try {
+    const { createPerformanceIndexes } = require("./utils/performanceIndexes");
+    await createPerformanceIndexes();
+  } catch (error) {
+    console.log("Index creation skipped:", error.message);
+  }
+}, 2000);
 
 app.use(errorMiddleware);
 

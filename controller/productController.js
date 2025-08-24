@@ -143,8 +143,20 @@ const getAllProducts = asyncHandler(async (req, res) => {
     }
   }
 
-  // Disable caching for search results
-  res.setHeader("Cache-Control", "no-store");
+  // Enable aggressive caching for better performance
+  const cacheKey = `products:${JSON.stringify(query)}:${sort}:${page}:${limit}`;
+  const { getFromCache, setCache } = require("../utils/redisCache");
+
+  // Try cache first (5 minute cache)
+  const cachedResult = await getFromCache(cacheKey);
+  if (cachedResult) {
+    console.log("🚀 Serving from cache:", cacheKey);
+    return res.status(200).json(cachedResult);
+  }
+
+  // Set appropriate cache headers (cache for 5 minutes)
+  res.setHeader("Cache-Control", "public, max-age=300, s-maxage=300");
+  res.setHeader("ETag", `"${Date.now()}"`);
 
   // Detailed debug logging
   console.log("Final query:", JSON.stringify(query, null, 2));
@@ -161,14 +173,15 @@ const getAllProducts = asyncHandler(async (req, res) => {
       )
       .sort(sortObj)
       .skip(skip)
-      .limit(limit),
+      .limit(limit)
+      .lean(), // Add lean() for 2-3x faster queries
     Product.countDocuments(query),
   ]);
 
   console.log("Found products:", products.length);
   console.log("Total products:", total);
 
-  res.json({
+  const result = {
     success: true,
     products,
     pagination: {
@@ -179,7 +192,12 @@ const getAllProducts = asyncHandler(async (req, res) => {
       hasNext: page * limit < total,
       hasPrev: page > 1,
     },
-  });
+  };
+
+  // Cache the result for 5 minutes
+  await setCache(cacheKey, result, 300);
+
+  res.json(result);
 });
 
 // Get products by category with sorting and pagination

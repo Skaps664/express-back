@@ -173,6 +173,31 @@ const cache = {
   },
 };
 
+// High-performance cache helper functions for API endpoints
+const getFromCache = async (key) => {
+  return await cache.get(key);
+};
+
+const setCache = async (key, data, ttl = 300) => {
+  return await cache.set(key, data, ttl);
+};
+
+// Batch cache operations for better performance
+const batchCache = async (operations) => {
+  if (!redisClient || !operations.length) return false;
+  try {
+    const pipeline = redisClient.pipeline();
+    operations.forEach(({ key, data, ttl = 300 }) => {
+      pipeline.setex(key, ttl, JSON.stringify(data));
+    });
+    await pipeline.exec();
+    return true;
+  } catch (error) {
+    console.log("Batch cache error:", error.message);
+    return false;
+  }
+};
+
 // Graceful shutdown
 process.on("SIGINT", async () => {
   if (redisClient) {
@@ -181,4 +206,11 @@ process.on("SIGINT", async () => {
   }
 });
 
-module.exports = { cache, initializeRedis, redisClient };
+module.exports = {
+  cache,
+  initializeRedis,
+  redisClient,
+  getFromCache,
+  setCache,
+  batchCache,
+};
