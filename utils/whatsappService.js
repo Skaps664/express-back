@@ -20,6 +20,10 @@ const sendWhatsAppNotification = async (orderData) => {
       process.env.WHATSAPP_NUMBER ||
       "923259327819";
 
+    console.log(
+      `📱 Sending WhatsApp to: +${adminWhatsApp.replace(/[^0-9]/g, "")}`
+    );
+
     const response = await axios.post(
       `https://api.twilio.com/2010-04-01/Accounts/${process.env.TWILIO_ACCOUNT_SID}/Messages.json`,
       new URLSearchParams({
@@ -50,7 +54,28 @@ const sendWhatsAppNotification = async (orderData) => {
       "❌ Error sending WhatsApp notification:",
       error.response?.data || error.message
     );
-    return { success: false, error: error.response?.data || error.message };
+
+    // Check for specific Twilio error codes
+    const errorCode = error.response?.data?.code;
+    const errorMessage = error.response?.data?.message;
+
+    if (errorCode === 63015) {
+      console.error(
+        "🚨 Twilio Trial Account Restriction: Your admin WhatsApp number needs to be verified in Twilio Console"
+      );
+      console.error(
+        "📝 Fix: Go to https://console.twilio.com/ and verify +923259327819"
+      );
+      console.error(
+        "💡 Alternative: Upgrade to paid Twilio account or use CallMeBot fallback"
+      );
+    }
+
+    return {
+      success: false,
+      error: error.response?.data || error.message,
+      errorCode,
+    };
   }
 };
 
@@ -130,53 +155,109 @@ const generateWhatsAppMessage = (orderData) => {
 };
 
 /**
- * Alternative method using CallMeBot API (No registration required)
+ * Send WhatsApp notification using CallMeBot API (Primary method)
  * @param {Object} orderData - Order details
  */
 const sendWhatsAppViaCallMeBot = async (orderData) => {
   try {
-    // This requires you to add the CallMeBot number to your WhatsApp contacts first
-    // Send "I allow callmebot to send me messages" to +34 644 84 71 89
-
+    // Check if CallMeBot API key is configured
     if (!process.env.CALLMEBOT_API_KEY) {
-      console.log("⚠️ CallMeBot API key not configured");
+      console.log("❌ CallMeBot API key not configured");
+      console.log("📝 Setup instructions:");
+      console.log("1. Add +34 644 84 71 89 to WhatsApp contacts");
+      console.log(
+        "2. Send 'I allow callmebot to send me messages' to that number"
+      );
+      console.log(
+        "3. Add the received API key to your .env file as CALLMEBOT_API_KEY"
+      );
       return { success: false, error: "CallMeBot API key not configured" };
     }
 
     const message = generateWhatsAppMessage(orderData);
     const adminPhone = process.env.ADMIN_WHATSAPP || "923259327819";
 
+    // Clean phone number (remove any non-numeric characters except +)
+    const cleanPhone = adminPhone.replace(/[^0-9]/g, "");
+
+    console.log(`📱 Sending WhatsApp via CallMeBot to: +${cleanPhone}`);
+    console.log(
+      `🔑 Using API key: ${process.env.CALLMEBOT_API_KEY.substring(0, 6)}...`
+    );
+
     const response = await axios.get(`https://api.callmebot.com/whatsapp.php`, {
       params: {
-        phone: adminPhone.replace(/[^0-9]/g, ""),
+        phone: cleanPhone,
         text: message,
         apikey: process.env.CALLMEBOT_API_KEY,
       },
+      timeout: 10000, // 10 second timeout
     });
 
-    console.log("✅ WhatsApp sent via CallMeBot:", response.data);
-    return { success: true, response: response.data };
+    console.log("✅ WhatsApp sent via CallMeBot successfully!");
+    console.log("📊 Response:", response.data);
+
+    return {
+      success: true,
+      response: response.data,
+      method: "CallMeBot",
+    };
   } catch (error) {
     console.error("❌ CallMeBot WhatsApp error:", error.message);
-    return { success: false, error: error.message };
+
+    if (error.response) {
+      console.error("📊 Response status:", error.response.status);
+      console.error("📊 Response data:", error.response.data);
+    }
+
+    return {
+      success: false,
+      error: error.message,
+      method: "CallMeBot",
+    };
   }
 };
 
 /**
- * Send WhatsApp notification with fallback methods
+ * Send WhatsApp notification with Twilio as primary method
  * @param {Object} orderData - Order details
  */
 const sendOrderWhatsAppNotification = async (orderData) => {
-  // Try Twilio first (most reliable)
+  console.log("📱 Starting WhatsApp notification process...");
+
+  // Try Twilio first (primary method)
+  console.log("🚀 Trying Twilio (Primary method)...");
   const twilioResult = await sendWhatsAppNotification(orderData);
 
   if (twilioResult.success) {
+    console.log("✅ WhatsApp notification sent successfully via Twilio!");
     return twilioResult;
   }
 
+  console.log("⚠️ Twilio failed, trying CallMeBot as fallback...");
+  console.log("Twilio error details:", twilioResult.error);
+
   // Fallback to CallMeBot if Twilio fails
-  console.log("Trying CallMeBot as fallback...");
-  return await sendWhatsAppViaCallMeBot(orderData);
+  const callmebotResult = await sendWhatsAppViaCallMeBot(orderData);
+
+  if (callmebotResult.success) {
+    console.log("✅ WhatsApp notification sent successfully via CallMeBot!");
+    return callmebotResult;
+  }
+
+  // Both methods failed
+  console.error("❌ All WhatsApp notification methods failed!");
+  console.error("Twilio error:", twilioResult.error);
+  console.error("CallMeBot error:", callmebotResult.error);
+
+  return {
+    success: false,
+    error: "All WhatsApp methods failed",
+    details: {
+      twilio: twilioResult.error,
+      callmebot: callmebotResult.error,
+    },
+  };
 };
 
 module.exports = {

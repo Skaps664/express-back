@@ -542,6 +542,65 @@ const updateProduct = asyncHandler(async (req, res) => {
   const { id } = req.params;
   let updateData = { ...req.body };
 
+  console.log("Starting product update process...");
+  console.log("Request body keys:", Object.keys(req.body));
+  console.log("Files received:", {
+    images: req.files?.images?.length || 0,
+    documents: req.files?.documents?.length || 0,
+  });
+
+  // Parse JSON fields that come as strings from FormData
+  const jsonFields = [
+    "specifications",
+    "keyFeatures",
+    "tags",
+    "videos",
+    "relatedProducts",
+    "shippingInfo",
+    "documentTypes",
+  ];
+
+  jsonFields.forEach((field) => {
+    if (updateData[field] && typeof updateData[field] === "string") {
+      try {
+        updateData[field] = JSON.parse(updateData[field]);
+        console.log(`Parsed ${field}:`, updateData[field]);
+      } catch (error) {
+        console.error(`Error parsing ${field}:`, error.message);
+        // Set to appropriate default value
+        if (field === "specifications") updateData[field] = [];
+        else if (field === "shippingInfo")
+          updateData[field] = {
+            freeShipping: false,
+            estimatedDelivery: "",
+            returnPolicy: "",
+            warrantyService: "",
+          };
+        else updateData[field] = [];
+      }
+    }
+  });
+
+  // Handle boolean fields that come as strings from FormData
+  const booleanFields = ["isFeatured", "isBestSeller", "isNewArrival"];
+  booleanFields.forEach((field) => {
+    if (updateData[field] !== undefined) {
+      updateData[field] =
+        updateData[field] === "true" || updateData[field] === true;
+    }
+  });
+
+  // Handle numeric fields that come as strings from FormData
+  const numericFields = ["price", "originalPrice", "stock", "viewCount"];
+  numericFields.forEach((field) => {
+    if (updateData[field] !== undefined && updateData[field] !== "") {
+      const numValue = parseFloat(updateData[field]);
+      if (!isNaN(numValue)) {
+        updateData[field] = numValue;
+      }
+    }
+  });
+
   // 1. Handle images
   let imageUrls = [];
   if (req.files && req.files.images) {
@@ -559,14 +618,25 @@ const updateProduct = asyncHandler(async (req, res) => {
   // 2. Handle documents (PDFs)
   let documentObjs = [];
   if (req.files && req.files.documents) {
+    console.log("Processing document uploads...");
     for (const file of req.files.documents) {
       const uploadRes = await cloudinaryUploadImage(
         `data:${file.mimetype};base64,${file.buffer.toString("base64")}`,
         "raw"
       );
+
+      // Find document type from documentTypes array
+      let docType = "other";
+      if (updateData.documentTypes && Array.isArray(updateData.documentTypes)) {
+        const typeInfo = updateData.documentTypes.find(
+          (dt) => dt.name === file.originalname
+        );
+        if (typeInfo) docType = typeInfo.type;
+      }
+
       documentObjs.push({
         name: file.originalname,
-        type: req.body[`documentType_${file.originalname}`] || "other",
+        type: docType,
         url: uploadRes.url,
         size: Math.round(file.size / 1024),
         uploadedAt: new Date(),
@@ -574,20 +644,68 @@ const updateProduct = asyncHandler(async (req, res) => {
     }
     // Optionally, append or replace documents
     updateData.documents = (updateData.documents || []).concat(documentObjs);
+  } else {
+    console.log("No documents to upload or documents array is empty");
   }
 
-  const updatedProduct = await Product.findByIdAndUpdate(id, updateData, {
-    new: true,
-    runValidators: true,
+  // Remove documentTypes from updateData as it's only used for processing
+  delete updateData.documentTypes;
+
+  console.log("Final update data keys:", Object.keys(updateData));
+  console.log(
+    "Specifications structure:",
+    JSON.stringify(updateData.specifications, null, 2)
+  );
+
+  console.log("🔄 Starting MongoDB update operation for product ID:", id);
+  console.log("📊 Update data summary:", {
+    name: updateData.name,
+    price: updateData.price,
+    descriptionLength: updateData.description?.length || 0,
+    specsCount: updateData.specifications?.length || 0,
+    featuresCount: updateData.keyFeatures?.length || 0,
+    documentsCount: updateData.documents?.length || 0,
   });
 
-  if (!updatedProduct) {
-    return res
-      .status(404)
-      .json({ success: false, message: "Product not found" });
-  }
+  try {
+    const updatedProduct = await Product.findByIdAndUpdate(id, updateData, {
+      new: true,
+      runValidators: true,
+    });
 
-  res.status(200).json({ success: true, product: updatedProduct });
+    console.log("✅ MongoDB update completed successfully");
+    console.log("📋 Updated product summary:", {
+      id: updatedProduct._id,
+      name: updatedProduct.name,
+      price: updatedProduct.price,
+      descriptionLength: updatedProduct.description?.length || 0,
+      specsCount: updatedProduct.specifications?.length || 0,
+      featuresCount: updatedProduct.keyFeatures?.length || 0,
+      documentsCount: updatedProduct.documents?.length || 0,
+    });
+
+    if (!updatedProduct) {
+      console.log("❌ Product not found after update - ID might be invalid");
+      return res
+        .status(404)
+        .json({ success: false, message: "Product not found" });
+    }
+
+    res.status(200).json({ success: true, product: updatedProduct });
+  } catch (updateError) {
+    console.error("💥 MongoDB update failed:", updateError);
+    console.error("🔍 Update error details:", {
+      message: updateError.message,
+      name: updateError.name,
+      code: updateError.code,
+      stack: updateError.stack,
+    });
+    return res.status(500).json({
+      success: false,
+      message: "Failed to update product",
+      error: updateError.message,
+    });
+  }
 });
 
 // Delete product

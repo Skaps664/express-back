@@ -107,6 +107,8 @@ const uploadToCloudinary = async (req, res, next) => {
                     /\s+/g,
                     "_"
                   )}`,
+                  access_mode: "public",
+                  flags: "attachment",
                 },
                 (error, result) => {
                   if (error) {

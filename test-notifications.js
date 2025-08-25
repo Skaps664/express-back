@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 // Standalone notification test - doesn't require MongoDB connection
-require("dotenv").config({ path: "./config/config.env" });
+require("dotenv").config({ path: "./.env" });
 
 const { sendOrderNotificationEmail } = require("./utils/emailService");
 const whatsappService = require("./utils/whatsappService");

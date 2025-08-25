@@ -49,6 +49,7 @@ const dashboardRoute = require("./routes/dashboardRoute");
 const testRoute = require("./routes/testRoute");
 const blogRoute = require("./routes/blogRoute");
 const blogCategoryRoute = require("./routes/blogCategoryRoute");
+const uploadRoute = require("./routes/uploadRoute");
 
 const app = express();
 
@@ -67,7 +68,11 @@ app.use(
 // DDoS protection - must be early in middleware stack
 app.use((req, res, next) => {
   // Skip DDoS protection for health checks
-  if (req.path === '/health' || req.path === '/api/health' || req.path === '/') {
+  if (
+    req.path === "/health" ||
+    req.path === "/api/health" ||
+    req.path === "/"
+  ) {
     return next();
   }
   ddosProtection(req, res, next);
@@ -76,7 +81,11 @@ app.use((req, res, next) => {
 // General rate limiting - applies to all routes except health checks
 app.use((req, res, next) => {
   // Skip rate limiting for health checks
-  if (req.path === '/health' || req.path === '/api/health' || req.path === '/') {
+  if (
+    req.path === "/health" ||
+    req.path === "/api/health" ||
+    req.path === "/"
+  ) {
     return next();
   }
   rateLimiters.general(req, res, next);
@@ -84,7 +93,11 @@ app.use((req, res, next) => {
 
 app.use((req, res, next) => {
   // Skip speed limiting for health checks
-  if (req.path === '/health' || req.path === '/api/health' || req.path === '/') {
+  if (
+    req.path === "/health" ||
+    req.path === "/api/health" ||
+    req.path === "/"
+  ) {
     return next();
   }
   rateLimiters.speedLimiter(req, res, next);
@@ -206,26 +219,36 @@ app.get("/health", (req, res) => {
     status: "healthy",
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
-    environment: process.env.NODE_ENV || "production"
+    environment: process.env.NODE_ENV || "production",
   });
 });
 
 app.get("/api/health", (req, res) => {
-  console.log("🔍 API Health check hit from:", req.ip, req.headers["user-agent"]);
-  console.log("🔍 API Health check headers:", JSON.stringify(req.headers, null, 2));
+  console.log(
+    "🔍 API Health check hit from:",
+    req.ip,
+    req.headers["user-agent"]
+  );
+  console.log(
+    "🔍 API Health check headers:",
+    JSON.stringify(req.headers, null, 2)
+  );
   res.status(200).json({
     success: true,
     status: "healthy",
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
-    environment: process.env.NODE_ENV || "production"
+    environment: process.env.NODE_ENV || "production",
   });
 });
 
 // Root endpoint for Railway health check
 app.get("/", (req, res) => {
   console.log("🔍 Root endpoint hit from:", req.ip, req.headers["user-agent"]);
-  console.log("🔍 Root endpoint headers:", JSON.stringify(req.headers, null, 2));
+  console.log(
+    "🔍 Root endpoint headers:",
+    JSON.stringify(req.headers, null, 2)
+  );
   res.status(200).json({
     success: true,
     message: "Solar Express API is running",
@@ -241,17 +264,23 @@ app.get("/", (req, res) => {
 app.use((req, res, next) => {
   req.id = require("crypto").randomUUID();
   res.set("X-Request-ID", req.id);
-  
+
   // Log all requests for debugging
-  console.log(`${new Date().toISOString()} - ${req.method} ${req.path} from ${req.ip}`);
-  
+  console.log(
+    `${new Date().toISOString()} - ${req.method} ${req.path} from ${req.ip}`
+  );
+
   next();
 });
 
 // Analytics tracking middleware - optimized for high traffic
 app.use((req, res, next) => {
   // Skip analytics for health checks
-  if (req.path === '/health' || req.path === '/api/health' || req.path === '/') {
+  if (
+    req.path === "/health" ||
+    req.path === "/api/health" ||
+    req.path === "/"
+  ) {
     return next();
   }
   trackVisitMiddleware(req, res, next);
@@ -293,6 +322,7 @@ app.use("/api/brand-page-settings", brandPageSettingsRoute);
 app.use("/api/entity-search", rateLimiters.products, entitySearchRoute);
 app.use("/api/blogs", blogRoute);
 app.use("/api/blog-categories", blogCategoryRoute);
+app.use("/api/upload", rateLimiters.admin, uploadRoute);
 app.use("/api/test", testRoute);
 
 // Metrics endpoint for monitoring (protected)
@@ -330,15 +360,19 @@ setTimeout(async () => {
 // Custom error handler for health checks
 app.use((err, req, res, next) => {
   // Special handling for health check routes - always return 200
-  if (req.path === '/health' || req.path === '/api/health' || req.path === '/') {
+  if (
+    req.path === "/health" ||
+    req.path === "/api/health" ||
+    req.path === "/"
+  ) {
     return res.status(200).json({
       success: true,
       status: "healthy",
       message: "Health check passed despite error",
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     });
   }
-  
+
   // Normal error handling for other routes
   next(err);
 });
