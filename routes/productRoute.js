@@ -144,11 +144,14 @@ router.use("/document", async (req, res) => {
             const https = require("https");
             const http = require("http");
 
+            let directUrlHandled = false;
+
             const protocol = document.url.startsWith("https") ? https : http;
             const request = protocol.get(document.url, (cloudinaryRes) => {
               console.log(`📊 Direct URL status: ${cloudinaryRes.statusCode}`);
 
-              if (cloudinaryRes.statusCode === 200) {
+              if (cloudinaryRes.statusCode === 200 && !directUrlHandled) {
+                directUrlHandled = true;
                 const contentType =
                   cloudinaryRes.headers["content-type"] || "application/pdf";
                 const filename = decodedPath.split("/").pop() || "document.pdf";
@@ -182,8 +185,13 @@ router.use("/document", async (req, res) => {
               // Continue to URL generation below
             });
 
-            // Wait a bit to see if direct URL works
+            // Wait a bit to see if direct URL works, then check if response was sent
             await new Promise((resolve) => setTimeout(resolve, 1000));
+
+            // If direct URL worked, stop processing
+            if (directUrlHandled) {
+              return;
+            }
           }
         }
       } else {
@@ -239,9 +247,132 @@ router.use("/document", async (req, res) => {
       api_secret: process.env.CLOUDINARY_API_SECRET,
     });
 
-    // First, try using Cloudinary SDK to generate a proper URL
+    // Use Cloudinary Admin API to retrieve the resource directly
     try {
-      console.log("🔗 Trying Cloudinary SDK url generation...");
+      console.log("🔧 Trying Cloudinary Admin API resource retrieval...");
+
+      // Get the resource details using Admin API
+      const resourceDetails = await cloudinary.api.resource(decodedPath, {
+        resource_type: "raw",
+      });
+
+      console.log("📋 Resource details:", {
+        public_id: resourceDetails.public_id,
+        format: resourceDetails.format,
+        secure_url: resourceDetails.secure_url,
+        url: resourceDetails.url,
+      });
+
+      // Use the secure URL from the resource details
+      const adminApiUrl = resourceDetails.secure_url || resourceDetails.url;
+
+      if (adminApiUrl) {
+        console.log("📎 Using Admin API URL:", adminApiUrl);
+
+        const protocol = adminApiUrl.startsWith("https") ? https : http;
+        const request = protocol.get(adminApiUrl, (cloudinaryRes) => {
+          console.log(`📊 Admin API URL status: ${cloudinaryRes.statusCode}`);
+
+          if (cloudinaryRes.statusCode === 200) {
+            const contentType =
+              cloudinaryRes.headers["content-type"] || "application/pdf";
+            const filename = decodedPath.split("/").pop() || "document.pdf";
+
+            res.setHeader("Content-Type", contentType);
+            res.setHeader(
+              "Content-Disposition",
+              `inline; filename="${filename}"`
+            );
+            res.setHeader("Access-Control-Allow-Origin", "*");
+            res.setHeader("Cache-Control", "public, max-age=31536000");
+
+            cloudinaryRes.pipe(res);
+            return;
+          } else {
+            console.log("❌ Admin API URL failed, trying fallback methods...");
+            // Continue to fallback methods below
+          }
+        });
+
+        request.on("error", (err) => {
+          console.log("❌ Admin API URL error:", err.message);
+          // Continue to fallback methods below
+        });
+
+        request.setTimeout(5000, () => {
+          console.log("⏰ Admin API URL timeout, trying alternatives...");
+          request.destroy();
+          // Continue to fallback methods below
+        });
+
+        // Wait to see if Admin API URL works
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+      }
+    } catch (adminApiError) {
+      console.log("⚠️ Admin API error:", adminApiError.message);
+    }
+
+    // First, try using Cloudinary SDK to generate a signed URL
+    try {
+      console.log("🔗 Trying Cloudinary SDK signed url generation...");
+
+      // Generate a signed URL for private resources
+      const signedUrl = cloudinary.utils.private_download_url(
+        decodedPath,
+        "raw",
+        {
+          expires_at: Math.floor(Date.now() / 1000) + 3600, // 1 hour expiry
+        }
+      );
+
+      console.log("📎 Generated signed URL:", signedUrl);
+
+      // Try the signed URL first
+      const protocol = signedUrl.startsWith("https") ? https : http;
+      const request = protocol.get(signedUrl, (cloudinaryRes) => {
+        console.log(`📊 Signed URL status: ${cloudinaryRes.statusCode}`);
+
+        if (cloudinaryRes.statusCode === 200) {
+          const contentType =
+            cloudinaryRes.headers["content-type"] || "application/pdf";
+          const filename = decodedPath.split("/").pop() || "document.pdf";
+
+          res.setHeader("Content-Type", contentType);
+          res.setHeader(
+            "Content-Disposition",
+            `inline; filename="${filename}"`
+          );
+          res.setHeader("Access-Control-Allow-Origin", "*");
+          res.setHeader("Cache-Control", "public, max-age=31536000");
+
+          cloudinaryRes.pipe(res);
+          return;
+        } else {
+          console.log("❌ Signed URL failed, trying public URL generation...");
+          // Continue to public URL generation below
+        }
+      });
+
+      request.on("error", (err) => {
+        console.log("❌ Signed URL error:", err.message);
+        // Continue to public URL generation below
+      });
+
+      request.setTimeout(5000, () => {
+        console.log("⏰ Signed URL timeout, trying alternatives...");
+        request.destroy();
+        // Continue to public URL generation below
+      });
+
+      // Wait to see if signed URL works
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    } catch (signedUrlError) {
+      console.log("⚠️ Signed URL generation error:", signedUrlError.message);
+    }
+
+    // Try to generate URL using Cloudinary SDK for public access
+    try {
+      console.log("🔗 Trying Cloudinary SDK public url generation...");
 
       // Try to generate URL using Cloudinary SDK
       const cloudinarySDKUrl = cloudinary.url(decodedPath, {
