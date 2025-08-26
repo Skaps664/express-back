@@ -10,6 +10,7 @@ const {
   deleteBlog,
   getFeaturedBlogs,
   getBlogsByCategory,
+  getBlogsByProduct,
   searchBlogs,
   addComment,
   getBlogAnalytics,
@@ -22,6 +23,7 @@ router.get("/", getAllBlogs);
 router.get("/featured", getFeaturedBlogs);
 router.get("/search", searchBlogs);
 router.get("/category/:slug", getBlogsByCategory);
+router.get("/product/:productId", getBlogsByProduct);
 router.get("/:slug", getBlogBySlug);
 
 // Protected routes

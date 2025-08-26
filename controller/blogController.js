@@ -173,10 +173,26 @@ const createBlog = asyncHandler(async (req, res) => {
       );
     }
 
+    // Add blog reference to primary product
+    if (blogData.primaryProduct) {
+      await Products.updateOne(
+        { _id: blogData.primaryProduct },
+        { $addToSet: { relatedBlogs: savedBlog._id } }
+      );
+    }
+
     // Add blog reference to related brands
     if (blogData.relatedBrands?.length) {
       await Brand.updateMany(
         { _id: { $in: blogData.relatedBrands } },
+        { $addToSet: { relatedBlogs: savedBlog._id } }
+      );
+    }
+
+    // Add blog reference to primary brand
+    if (blogData.primaryBrand) {
+      await Brand.updateOne(
+        { _id: blogData.primaryBrand },
         { $addToSet: { relatedBlogs: savedBlog._id } }
       );
     }
@@ -426,13 +442,13 @@ const updateBlog = asyncHandler(async (req, res) => {
   }
 
   // Handle product/brand relations
-  if (updateData.relatedProducts) {
-    // Remove blog from old products
+  if (updateData.relatedProducts !== undefined) {
+    // Remove blog from old products (including old primary product)
     await Products.updateMany(
       { relatedBlogs: blog._id },
       { $pull: { relatedBlogs: blog._id } }
     );
-    // Add blog to new products
+    // Add blog to new related products
     if (updateData.relatedProducts.length) {
       await Products.updateMany(
         { _id: { $in: updateData.relatedProducts } },
@@ -441,16 +457,68 @@ const updateBlog = asyncHandler(async (req, res) => {
     }
   }
 
-  if (updateData.relatedBrands) {
-    // Remove blog from old brands
+  // Handle primary product separately
+  if (updateData.primaryProduct !== undefined) {
+    // Remove from old primary product if it's not in related products
+    if (
+      blog.primaryProduct &&
+      blog.primaryProduct.toString() !== updateData.primaryProduct
+    ) {
+      const isInRelated = updateData.relatedProducts?.includes(
+        blog.primaryProduct.toString()
+      );
+      if (!isInRelated) {
+        await Products.updateOne(
+          { _id: blog.primaryProduct },
+          { $pull: { relatedBlogs: blog._id } }
+        );
+      }
+    }
+    // Add to new primary product
+    if (updateData.primaryProduct) {
+      await Products.updateOne(
+        { _id: updateData.primaryProduct },
+        { $addToSet: { relatedBlogs: blog._id } }
+      );
+    }
+  }
+
+  if (updateData.relatedBrands !== undefined) {
+    // Remove blog from old brands (including old primary brand)
     await Brand.updateMany(
       { relatedBlogs: blog._id },
       { $pull: { relatedBlogs: blog._id } }
     );
-    // Add blog to new brands
+    // Add blog to new related brands
     if (updateData.relatedBrands.length) {
       await Brand.updateMany(
         { _id: { $in: updateData.relatedBrands } },
+        { $addToSet: { relatedBlogs: blog._id } }
+      );
+    }
+  }
+
+  // Handle primary brand separately
+  if (updateData.primaryBrand !== undefined) {
+    // Remove from old primary brand if it's not in related brands
+    if (
+      blog.primaryBrand &&
+      blog.primaryBrand.toString() !== updateData.primaryBrand
+    ) {
+      const isInRelated = updateData.relatedBrands?.includes(
+        blog.primaryBrand.toString()
+      );
+      if (!isInRelated) {
+        await Brand.updateOne(
+          { _id: blog.primaryBrand },
+          { $pull: { relatedBlogs: blog._id } }
+        );
+      }
+    }
+    // Add to new primary brand
+    if (updateData.primaryBrand) {
+      await Brand.updateOne(
+        { _id: updateData.primaryBrand },
         { $addToSet: { relatedBlogs: blog._id } }
       );
     }
@@ -461,8 +529,8 @@ const updateBlog = asyncHandler(async (req, res) => {
     runValidators: true,
   });
 
-  // Clear all blog-related cache
-  await Promise.all([
+  // Clear all blog-related cache and affected product caches
+  const cacheInvalidationPromises = [
     setCache("blogs:all", null, 0),
     setCache(
       `blogs:${JSON.stringify({
@@ -483,7 +551,43 @@ const updateBlog = asyncHandler(async (req, res) => {
     setCache("blogs:featured", null, 0),
     setCache(`blog:${blog.slug}`, null, 0),
     setCache(`blog:${updatedBlog.slug}`, null, 0),
-  ]);
+    // Clear all language variants of the blog cache
+    setCache(`blog:${blog.slug}:en`, null, 0),
+    setCache(`blog:${blog.slug}:ur`, null, 0),
+    setCache(`blog:${blog.slug}:ps`, null, 0),
+    setCache(`blog:${updatedBlog.slug}:en`, null, 0),
+    setCache(`blog:${updatedBlog.slug}:ur`, null, 0),
+    setCache(`blog:${updatedBlog.slug}:ps`, null, 0),
+  ];
+
+  // Clear product caches for affected products
+  const allAffectedProductIds = [
+    ...(blog.relatedProducts || []),
+    ...(updateData.relatedProducts || []),
+    blog.primaryProduct,
+    updateData.primaryProduct,
+  ].filter(Boolean);
+
+  // Get unique product IDs and clear their caches
+  const uniqueProductIds = [
+    ...new Set(allAffectedProductIds.map((id) => id.toString())),
+  ];
+
+  for (const productId of uniqueProductIds) {
+    try {
+      const Product = require("../models/ProductsModel");
+      const product = await Product.findById(productId).select("slug").lean();
+      if (product) {
+        cacheInvalidationPromises.push(
+          setCache(`product:${product.slug}`, null, 0)
+        );
+      }
+    } catch (error) {
+      console.error(`Error clearing cache for product ${productId}:`, error);
+    }
+  }
+
+  await Promise.all(cacheInvalidationPromises);
 
   res.json({
     success: true,
@@ -648,6 +752,67 @@ const getBlogsByCategory = asyncHandler(async (req, res) => {
   const result = {
     success: true,
     category,
+    blogs,
+    pagination: {
+      page: parseInt(page),
+      limit: parseInt(limit),
+      total,
+      pages: Math.ceil(total / parseInt(limit)),
+      hasNext: parseInt(page) * parseInt(limit) < total,
+      hasPrev: parseInt(page) > 1,
+    },
+  };
+
+  // Cache for 10 minutes
+  await setCache(cacheKey, result, 600);
+
+  res.json(result);
+});
+
+// Get blogs by product
+const getBlogsByProduct = asyncHandler(async (req, res) => {
+  const { productId } = req.params;
+  const { page = 1, limit = 12, language = "en" } = req.query;
+
+  if (!productId) {
+    return res.status(400).json({
+      success: false,
+      message: "Product ID is required",
+    });
+  }
+
+  const skip = (parseInt(page) - 1) * parseInt(limit);
+
+  const cacheKey = `blogs:product:${productId}:${page}:${limit}:${language}`;
+  const cached = await getFromCache(cacheKey);
+  if (cached) {
+    return res.json(cached);
+  }
+
+  const [blogs, total] = await Promise.all([
+    Blog.find({
+      $or: [{ relatedProducts: productId }, { primaryProduct: productId }],
+      status: "published",
+      isActive: true,
+    })
+      .populate("category", "name slug")
+      .populate("author", "name")
+      .select(
+        `title.${language} title.en excerpt.${language} excerpt.en slug featuredImage publishedAt readingTime viewCount`
+      )
+      .sort({ publishedAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit))
+      .lean(),
+    Blog.countDocuments({
+      $or: [{ relatedProducts: productId }, { primaryProduct: productId }],
+      status: "published",
+      isActive: true,
+    }),
+  ]);
+
+  const result = {
+    success: true,
     blogs,
     pagination: {
       page: parseInt(page),
@@ -937,6 +1102,7 @@ module.exports = {
   deleteBlog,
   getFeaturedBlogs,
   getBlogsByCategory,
+  getBlogsByProduct,
   searchBlogs,
   addComment,
   getBlogAnalytics,

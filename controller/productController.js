@@ -667,6 +667,8 @@ const updateProduct = asyncHandler(async (req, res) => {
     documentsCount: updateData.documents?.length || 0,
   });
 
+  const { getFromCache, setCache } = require("../utils/redisCache");
+
   try {
     const updatedProduct = await Product.findByIdAndUpdate(id, updateData, {
       new: true,
@@ -674,6 +676,19 @@ const updateProduct = asyncHandler(async (req, res) => {
     });
 
     console.log("✅ MongoDB update completed successfully");
+
+    // Invalidate cache for this product and blog-related caches
+    await Promise.all([
+      setCache(`product:${updatedProduct.slug}`, null, 0),
+      // Clear blog caches since blog-product relationships might have changed
+      setCache("blogs:all", null, 0),
+      setCache("blogs:featured", null, 0),
+    ]);
+    console.log(
+      "🗑️ Cleared cache for product and related blogs:",
+      updatedProduct.slug
+    );
+
     console.log("📋 Updated product summary:", {
       id: updatedProduct._id,
       name: updatedProduct.name,
@@ -774,13 +789,77 @@ const deleteProduct = asyncHandler(async (req, res) => {
 // Get product by slug
 const getProductBySlug = asyncHandler(async (req, res) => {
   const { slug } = req.params;
-  console.log("Received slug:", slug); // Log the slug received
+  console.log("Received slug:", slug);
+
+  // Get cache instance
+  const { getFromCache, setCache } = require("../utils/redisCache");
+
+  // Check cache first
+  const cacheKey = `product:${slug}`;
+  const cachedProduct = await getFromCache(cacheKey);
+  if (cachedProduct) {
+    console.log("Serving from cache:", slug);
+    return res.json(cachedProduct);
+  }
 
   try {
     const product = await Product.findOne({ slug })
       .populate("brand", "name slug logo")
       .populate("category", "name slug")
-      .populate("subCategory", "name slug");
+      .populate("subCategory", "name slug")
+      .populate({
+        path: "relatedBlogs",
+        select:
+          "title slug excerpt featuredImage status publishedAt description isActive",
+        match: { status: "published", isActive: true },
+        options: { sort: { publishedAt: -1 } },
+      })
+      .lean();
+
+    // If no product found, return 404
+    if (!product) {
+      console.log("Product not found for slug:", slug);
+      return res
+        .status(404)
+        .json({ success: false, message: "Product not found" });
+    }
+
+    // Filter out any null/undefined blogs and ensure they're active and published
+    const validBlogs = (product.relatedBlogs || []).filter(
+      (blog) => blog && blog.status === "published" && blog.isActive
+    );
+
+    console.log(
+      `Found ${validBlogs.length} valid related blogs for product ${slug}`
+    );
+
+    // Convert all resources to standardized format
+    product.resources = [
+      ...(product.documents || []).map((doc) => ({
+        type: "document",
+        id:
+          doc._id?.toString() || doc.id || `doc_${Date.now()}_${Math.random()}`,
+        ...doc,
+      })),
+      ...(product.videos || []).map((video) => ({
+        type: "video",
+        id:
+          video._id?.toString() ||
+          video.id ||
+          `video_${Date.now()}_${Math.random()}`,
+        ...video,
+      })),
+      ...validBlogs.map((blog) => ({
+        type: "blog",
+        id: blog._id.toString(),
+        title: blog.title,
+        slug: blog.slug,
+        excerpt: blog.excerpt,
+        featuredImage: blog.featuredImage,
+        publishedAt: blog.publishedAt,
+        description: blog.description,
+      })),
+    ];
 
     if (!product) {
       console.log("Product not found for slug:", slug); // Log if no product is found
@@ -797,10 +876,15 @@ const getProductBySlug = asyncHandler(async (req, res) => {
       );
     }
 
-    console.log("Product found:", product); // Log the product found
-    res.status(200).json({ success: true, product });
+    const result = { success: true, product };
+
+    // Cache the result for 5 minutes
+    await setCache(cacheKey, result, 300);
+
+    console.log("Product found and cached:", slug);
+    res.status(200).json(result);
   } catch (error) {
-    console.error("Error fetching product by slug:", error); // Log any errors
+    console.error("Error fetching product by slug:", error);
     res.status(500).json({ success: false, message: "Internal Server Error" });
   }
 });
