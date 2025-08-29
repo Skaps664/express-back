@@ -70,7 +70,7 @@ const dbConnect = () => {
 
       if (error.message.includes("authentication failed")) {
         console.error("🚨 AUTHENTICATION ERROR:");
-        console.error("   Check your MongoDB username/password in config.env");
+        console.error("   Check your MongoDB username/password in .env");
       }
 
       // For Vercel deployment, don't retry indefinitely

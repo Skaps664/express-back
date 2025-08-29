@@ -1,5 +1,5 @@
 const mongoose = require("mongoose");
-require("dotenv").config({ path: "./config/config.env" });
+require("dotenv").config();
 
 async function quickConnectionTest() {
   console.log("🧪 Quick MongoDB Connection Test");

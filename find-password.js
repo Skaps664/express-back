@@ -1,6 +1,6 @@
 const mongoose = require("mongoose");
 const bcrypt = require("bcrypt");
-require("dotenv").config({ path: "./config/config.env" });
+require("dotenv").config();
 
 async function findCorrectPassword() {
   try {

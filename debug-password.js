@@ -1,6 +1,6 @@
 const mongoose = require("mongoose");
-const bcrypt = require("bcrypt");
-require("dotenv").config({ path: "./config/config.env" });
+const bcrypt = require("bcryptjs");
+require("dotenv").config();
 
 // Simple test to debug password issues
 async function debugPassword() {

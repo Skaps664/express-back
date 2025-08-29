@@ -1,5 +1,5 @@
 const axios = require("axios");
-require("dotenv").config({ path: "./config/config.env" });
+require("dotenv").config();
 
 console.log("🔍 Twilio Credential Verification");
 console.log("=================================");

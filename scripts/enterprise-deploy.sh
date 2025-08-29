@@ -58,9 +58,9 @@ fi
 print_status "Checking enterprise environment variables..."
 
 # Load environment variables from config.env
-if [ -f "config/config.env" ]; then
-    export $(grep -v '^#' config/config.env | xargs)
-    print_success "Environment variables loaded from config/config.env"
+if [ -f ".env" ]; then
+    export $(grep -v '^#' .env | xargs)
+    print_success "Environment variables loaded from .env"
 fi
 
 required_vars=(
@@ -85,7 +85,7 @@ if [ ${#missing_vars[@]} -ne 0 ]; then
     for var in "${missing_vars[@]}"; do
         echo "  - $var"
     done
-    print_warning "Check your config/config.env file"
+    print_warning "Check your .env file"
 else
     print_success "All critical environment variables are set"
 fi

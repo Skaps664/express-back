@@ -1,6 +1,6 @@
 const mongoose = require("mongoose");
 const jwt = require("jsonwebtoken");
-require("dotenv").config({ path: "./config/config.env" });
+require("dotenv").config();
 
 async function testTokens() {
   try {

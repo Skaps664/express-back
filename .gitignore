@@ -1,12 +1,11 @@
 /node_modules
 
 # Environment variables
-/config
-
-# Environment variables
-config.env
 .env
 .env.local
 .env.production
 .env.development
-/config/config.envconfig.env
+
+# Logs
+logs/
+*.log

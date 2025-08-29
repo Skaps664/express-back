@@ -1,5 +1,5 @@
 // Redis Connection Test for Solar Express
-require("dotenv").config({ path: "./config/config.env" });
+require("dotenv").config();
 const { initializeRedis, cache } = require("./utils/redisCache");
 
 async function testRedisConnection() {
@@ -14,7 +14,7 @@ async function testRedisConnection() {
     );
   } else {
     console.log("❌ REDIS_URL not found in environment");
-    console.log("🔧 Make sure REDIS_URL is uncommented in config/config.env");
+    console.log("🔧 Make sure REDIS_URL is uncommented in .env");
     return;
   }
 
@@ -55,7 +55,7 @@ async function testRedisConnection() {
     } catch (error) {
       console.log("\n❌ Redis test failed:", error.message);
       console.log("\n🔧 Troubleshooting steps:");
-      console.log("1. Check your REDIS_URL in config.env");
+      console.log("1. Check your REDIS_URL in .env");
       console.log("2. Verify Redis credentials in your provider dashboard");
       console.log("3. Ensure network connectivity to Redis server");
       console.log(
