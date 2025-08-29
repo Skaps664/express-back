@@ -2,19 +2,58 @@ const nodemailer = require("nodemailer");
 
 // Create transporter for email notifications
 const createTransporter = () => {
-  return nodemailer.createTransport({
+  const config = {
     service: "gmail",
     auth: {
       user: process.env.EMAIL_USER,
       pass: process.env.EMAIL_APP_PASSWORD,
     },
-  });
+  };
+
+  // For production, add additional security and timeout settings
+  if (process.env.NODE_ENV === "production") {
+    config.host = "smtp.gmail.com";
+    config.port = 587;
+    config.secure = false; // true for 465, false for other ports
+    config.tls = {
+      rejectUnauthorized: false,
+    };
+    config.connectionTimeout = 60000; // 60 seconds
+    config.greetingTimeout = 30000; // 30 seconds
+    config.socketTimeout = 60000; // 60 seconds
+  }
+
+  console.log(
+    `📧 Creating email transporter for environment: ${process.env.NODE_ENV}`
+  );
+  console.log(`📧 Using email: ${process.env.EMAIL_USER}`);
+  console.log(
+    `📧 Password configured: ${process.env.EMAIL_APP_PASSWORD ? "Yes" : "No"}`
+  );
+
+  return nodemailer.createTransport(config);
 };
 
 // Send order notification email to admin
 const sendOrderNotificationEmail = async (orderData) => {
   try {
+    console.log(
+      `📧 Attempting to send order notification email for order: ${orderData.orderNumber}`
+    );
+
     const transporter = createTransporter();
+
+    // Verify transporter before sending
+    try {
+      await transporter.verify();
+      console.log("✅ Email transporter verified successfully");
+    } catch (verifyError) {
+      console.error(
+        "❌ Email transporter verification failed:",
+        verifyError.message
+      );
+      throw verifyError;
+    }
 
     const subject = `🚨 New Order Alert - ${orderData.orderNumber}`;
     const htmlContent = generateOrderEmailHTML(orderData);
@@ -27,15 +66,36 @@ const sendOrderNotificationEmail = async (orderData) => {
       html: htmlContent,
     };
 
+    console.log(`📧 Sending email to: ${process.env.ADMIN_EMAIL}`);
+    console.log(`📧 CC: ${process.env.ADMIN_CC_EMAIL}`);
+
     const result = await transporter.sendMail(mailOptions);
-    console.log(
-      "✅ Order notification email sent successfully:",
-      result.messageId
-    );
+    console.log("✅ Order notification email sent successfully!");
+    console.log(`📧 Message ID: ${result.messageId}`);
+    console.log(`📧 Response: ${result.response}`);
 
     return { success: true, messageId: result.messageId };
   } catch (error) {
-    console.error("❌ Error sending order notification email:", error);
+    console.error("❌ Error sending order notification email:");
+    console.error(`Error type: ${error.constructor.name}`);
+    console.error(`Error message: ${error.message}`);
+    console.error(`Error code: ${error.code}`);
+
+    if (error.response) {
+      console.error(`SMTP Response: ${error.response}`);
+    }
+
+    // Log specific error suggestions
+    if (error.message.includes("Username and Password not accepted")) {
+      console.error(
+        "💡 Gmail authentication issue - check App Password configuration"
+      );
+    }
+
+    if (error.message.includes("Connection timeout")) {
+      console.error("💡 Network connectivity issue - check SMTP access");
+    }
+
     return { success: false, error: error.message };
   }
 };
@@ -61,8 +121,10 @@ const generateOrderEmailHTML = (orderData) => {
             <td style="padding: 8px; border-bottom: 1px solid #eee;">
               <strong>${item.productName || item.name}</strong>
               ${
-                item.variant
-                  ? `<br><small>Variant: ${item.variant}</small>`
+                item.variant || item.selectedVariant
+                  ? `<br><small>Variant: ${
+                      item.variant || item.selectedVariant
+                    }</small>`
                   : ""
               }
             </td>
@@ -158,11 +220,17 @@ const generateOrderEmailHTML = (orderData) => {
             customerInfo.shippingAddress || "Address not provided"
           }</p>
           ${
-            orderData.orderNotes || orderData.specialInstructions
+            orderData.orderNotes ||
+            orderData.specialInstructions ||
+            customerInfo.specialNotes
               ? `
             <div style="background: #fff; padding: 15px; border-radius: 6px; margin-top: 15px;">
               <strong>📝 Special Instructions:</strong><br>
-              <em>${orderData.orderNotes || orderData.specialInstructions}</em>
+              <em>${
+                orderData.orderNotes ||
+                orderData.specialInstructions ||
+                customerInfo.specialNotes
+              }</em>
             </div>
           `
               : ""
@@ -232,6 +300,9 @@ const generateOrderEmailHTML = (orderData) => {
         <!-- Footer -->
         <div style="text-align: center; padding: 20px; color: #666; border-top: 1px solid #eee;">
           <p>This is an automated notification from Solar Express Order System</p>
+          <p>Environment: ${
+            process.env.NODE_ENV
+          } | Timestamp: ${new Date().toISOString()}</p>
           <p>For support, contact: ${process.env.EMAIL_USER}</p>
         </div>
       </div>
