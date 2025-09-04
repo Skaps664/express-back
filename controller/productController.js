@@ -51,14 +51,20 @@ const getAllProducts = asyncHandler(async (req, res) => {
 
   // Universal filters
   if (req.query.brand) {
-    // Handle brand filter - can be brand name or brand ID
-    const brandDoc = await Brand.findOne({
-      $or: [
-        { name: req.query.brand },
-        { slug: req.query.brand },
-        { _id: req.query.brand },
-      ],
-    });
+    // Handle brand filter - can be brand name, brand slug, or brand ID
+    const brandSearch = [];
+    brandSearch.push({ name: req.query.brand });
+    brandSearch.push({ slug: req.query.brand });
+    // Only attempt _id match when the value looks like a Mongo ObjectId
+    const mongoose = require("mongoose");
+    if (
+      typeof req.query.brand === "string" &&
+      mongoose.Types.ObjectId.isValid(req.query.brand)
+    ) {
+      brandSearch.push({ _id: req.query.brand });
+    }
+
+    const brandDoc = await Brand.findOne({ $or: brandSearch });
     if (brandDoc) {
       query.brand = brandDoc._id;
     }
@@ -188,11 +194,16 @@ const getAllProducts = asyncHandler(async (req, res) => {
     query["specifications.CountryOfOrigin"] = req.query.countryOfOrigin;
 
   // SEARCH FUNCTIONALITY - SIMPLIFIED AND FIXED
-  if (req.query.search && req.query.search.trim() !== "") {
-    const searchRegex = new RegExp(
-      req.query.search.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, "\\$&"),
-      "i"
+  if (
+    req.query.search &&
+    typeof req.query.search === "string" &&
+    req.query.search.trim() !== ""
+  ) {
+    const safeSearch = req.query.search.replace(
+      /[-[\]{}()*+?.,\\^$|#\s]/g,
+      "\\$&"
     );
+    const searchRegex = new RegExp(safeSearch, "i");
     query.$or = [
       { name: searchRegex },
       { slug: searchRegex },
@@ -205,7 +216,7 @@ const getAllProducts = asyncHandler(async (req, res) => {
   // Dynamic specification filters - simplified
   Object.entries(req.query).forEach(([key, value]) => {
     // Skip internal query params and empty values
-    const skipParams = [
+    const skipParams = new Set([
       "brand",
       "isFeatured",
       "isBestSeller",
@@ -219,22 +230,50 @@ const getAllProducts = asyncHandler(async (req, res) => {
       "limit",
       "search",
       "_t", // Skip timestamp parameter
-    ];
+    ]);
 
-    if (!skipParams.includes(key) && value && value.trim() !== "") {
-      const specFilter = {};
-      if (key.endsWith("_min")) {
-        const field = key.replace("_min", "");
-        specFilter[`specifications.${field}.min`] = Number(value);
-      } else if (key.endsWith("_max")) {
-        const field = key.replace("_max", "");
-        specFilter[`specifications.${field}.max`] = Number(value);
-      } else {
-        // For exact matches
-        specFilter[`specifications.${key}`] = value;
+    if (skipParams.has(key) || value === undefined || value === null) return;
+
+    // Handle array values (multiple filters with same key -> req.query[key] becomes an array)
+    if (Array.isArray(value)) {
+      // For numeric range suffixes, attempt to pick min/max if provided as arrays
+      if (key.endsWith("_min") || key.endsWith("_max")) {
+        // Convert array values to numbers when possible by taking the first valid numeric entry
+        const numericVals = value
+          .map((v) => Number(v))
+          .filter((n) => !isNaN(n));
+        if (numericVals.length === 0) return;
+        const field = key.endsWith("_min")
+          ? key.replace("_min", "")
+          : key.replace("_max", "");
+        if (!query[`specifications.${field}`])
+          query[`specifications.${field}`] = {};
+        if (key.endsWith("_min"))
+          query[`specifications.${field}`].$gte = numericVals[0];
+        else query[`specifications.${field}`].$lte = numericVals[0];
+        return;
       }
-      Object.assign(query, specFilter);
+
+      // For general exact matches, use $in
+      query[`specifications.${key}`] = { $in: value };
+      return;
     }
+
+    // Now value is a single primitive. Only operate on non-empty strings or numbers
+    if (typeof value === "string" && value.trim() === "") return;
+
+    const specFilter = {};
+    if (key.endsWith("_min")) {
+      const field = key.replace("_min", "");
+      specFilter[`specifications.${field}.min`] = Number(value);
+    } else if (key.endsWith("_max")) {
+      const field = key.replace("_max", "");
+      specFilter[`specifications.${field}.max`] = Number(value);
+    } else {
+      // For exact matches
+      specFilter[`specifications.${key}`] = value;
+    }
+    Object.assign(query, specFilter);
   });
 
   // Pagination - moved before category filter to fix scoping issue
@@ -244,12 +283,29 @@ const getAllProducts = asyncHandler(async (req, res) => {
 
   // Category filter
   if (req.query.category) {
-    const categoryDoc = await Category.findOne({ slug: req.query.category });
+    // Accept category by slug, name, or _id
+    const mongoose = require("mongoose");
+    const catSearch = [];
+    if (typeof req.query.category === "string") {
+      catSearch.push({ slug: req.query.category });
+      catSearch.push({ name: req.query.category });
+    }
+    if (
+      typeof req.query.category === "string" &&
+      mongoose.Types.ObjectId.isValid(req.query.category)
+    ) {
+      catSearch.push({ _id: req.query.category });
+    }
+
+    let categoryDoc = null;
+    if (catSearch.length > 0) {
+      categoryDoc = await Category.findOne({ $or: catSearch });
+    }
+
     if (categoryDoc) {
       query.category = categoryDoc._id;
     } else {
-      // If category not found by slug, return empty results
-      // This prevents ObjectId cast errors
+      // If category not found, return empty result set (do not throw)
       return res.json({
         success: true,
         products: [],
