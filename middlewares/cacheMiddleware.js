@@ -82,7 +82,10 @@ const cacheConfigs = {
   // Categories - cache for 30 minutes
   categories: cacheMiddleware({
     ttl: 1800,
-    keyGenerator: () => "categories:list",
+    keyGenerator: (req) => {
+      const slug = req.params?.slug || "general";
+      return `categories:filters:${slug}`;
+    },
   }),
 
   // Brands - cache for 30 minutes

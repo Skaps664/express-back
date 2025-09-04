@@ -2,6 +2,7 @@ const express = require("express");
 const asyncHandler = require("express-async-handler");
 const Product = require("../models/ProductsModel");
 const Category = require("../models/CategoryModel");
+const Brand = require("../models/BrandModel");
 const categoryFilters = require("../utils/categoryFilters");
 const { cloudinaryUploadImage } = require("../utils/cloudinary");
 const validateMongoId = require("../utils/validateMongoId"); // or your inline function
@@ -49,15 +50,55 @@ const getAllProducts = asyncHandler(async (req, res) => {
   }
 
   // Universal filters
-  if (req.query.brand) query.brand = req.query.brand;
+  if (req.query.brand) {
+    // Handle brand filter - can be brand name or brand ID
+    const brandDoc = await Brand.findOne({
+      $or: [
+        { name: req.query.brand },
+        { slug: req.query.brand },
+        { _id: req.query.brand },
+      ],
+    });
+    if (brandDoc) {
+      query.brand = brandDoc._id;
+    }
+  }
+
   if (req.query.isFeatured) query.isFeatured = req.query.isFeatured === "true";
   if (req.query.isBestSeller)
     query.isBestSeller = req.query.isBestSeller === "true";
+  if (req.query.isNewArrival)
+    query.isNewArrival = req.query.isNewArrival === "true";
+
+  // Price filters
   if (req.query.price_min || req.query.price_max) {
     query.price = {};
     if (req.query.price_min) query.price.$gte = Number(req.query.price_min);
     if (req.query.price_max) query.price.$lte = Number(req.query.price_max);
   }
+
+  // Handle predefined price ranges
+  if (req.query.priceRange) {
+    switch (req.query.priceRange) {
+      case "Under 10K":
+        query.price = { $lt: 10000 };
+        break;
+      case "10K-50K":
+        query.price = { $gte: 10000, $lte: 50000 };
+        break;
+      case "50K-100K":
+        query.price = { $gte: 50000, $lte: 100000 };
+        break;
+      case "100K-500K":
+        query.price = { $gte: 100000, $lte: 500000 };
+        break;
+      case "500K+":
+        query.price = { $gte: 500000 };
+        break;
+    }
+  }
+
+  // Rating filters
   if (req.query.rating_min || req.query.rating_max) {
     query["reviews.rating"] = {};
     if (req.query.rating_min)
@@ -65,6 +106,86 @@ const getAllProducts = asyncHandler(async (req, res) => {
     if (req.query.rating_max)
       query["reviews.rating"].$lte = Number(req.query.rating_max);
   }
+
+  // Category-specific filters for inverters
+  if (req.query.inverterType)
+    query["specifications.Type"] = req.query.inverterType;
+  if (req.query.phase) query["specifications.Phase"] = req.query.phase;
+
+  // New inverter boolean filters
+  if (req.query["On-Grid"] === "true") {
+    query["specifications.Type"] = "On-Grid";
+  }
+  if (req.query["Off-Grid"] === "true") {
+    query["specifications.Type"] = "Off-Grid";
+  }
+
+  if (req.query.powerRating_min || req.query.powerRating_max) {
+    query["specifications.PowerRating"] = {};
+    if (req.query.powerRating_min)
+      query["specifications.PowerRating"].$gte = Number(
+        req.query.powerRating_min
+      );
+    if (req.query.powerRating_max)
+      query["specifications.PowerRating"].$lte = Number(
+        req.query.powerRating_max
+      );
+  }
+
+  // Category-specific filters for solar panels
+  if (req.query.panelType) query["specifications.Type"] = req.query.panelType;
+  if (req.query.wattage_min || req.query.wattage_max) {
+    query["specifications.Wattage"] = {};
+    if (req.query.wattage_min)
+      query["specifications.Wattage"].$gte = Number(req.query.wattage_min);
+    if (req.query.wattage_max)
+      query["specifications.Wattage"].$lte = Number(req.query.wattage_max);
+  }
+  if (req.query.efficiency_min || req.query.efficiency_max) {
+    query["specifications.Efficiency"] = {};
+    if (req.query.efficiency_min)
+      query["specifications.Efficiency"].$gte = Number(
+        req.query.efficiency_min
+      );
+    if (req.query.efficiency_max)
+      query["specifications.Efficiency"].$lte = Number(
+        req.query.efficiency_max
+      );
+  }
+
+  // Category-specific filters for batteries
+  if (req.query.batteryType)
+    query["specifications.Type"] = req.query.batteryType;
+  if (req.query.voltage) query["specifications.Voltage"] = req.query.voltage;
+  if (req.query.capacity_min || req.query.capacity_max) {
+    query["specifications.Capacity"] = {};
+    if (req.query.capacity_min)
+      query["specifications.Capacity"].$gte = Number(req.query.capacity_min);
+    if (req.query.capacity_max)
+      query["specifications.Capacity"].$lte = Number(req.query.capacity_max);
+  }
+  if (req.query.cycleLife_min || req.query.cycleLife_max) {
+    query["specifications.CycleLife"] = {};
+    if (req.query.cycleLife_min)
+      query["specifications.CycleLife"].$gte = Number(req.query.cycleLife_min);
+    if (req.query.cycleLife_max)
+      query["specifications.CycleLife"].$lte = Number(req.query.cycleLife_max);
+  }
+
+  // Category-specific filters for tools
+  if (req.query.toolType) query["specifications.Type"] = req.query.toolType;
+  if (req.query.toolCategory)
+    query["specifications.Category"] = req.query.toolCategory;
+
+  // Category-specific filters for accessories
+  if (req.query.accessoryType)
+    query["specifications.Type"] = req.query.accessoryType;
+  if (req.query.material) query["specifications.Material"] = req.query.material;
+
+  // General filters
+  if (req.query.warranty) query["specifications.Warranty"] = req.query.warranty;
+  if (req.query.countryOfOrigin)
+    query["specifications.CountryOfOrigin"] = req.query.countryOfOrigin;
 
   // SEARCH FUNCTIONALITY - SIMPLIFIED AND FIXED
   if (req.query.search && req.query.search.trim() !== "") {
@@ -889,11 +1010,60 @@ const getProductBySlug = asyncHandler(async (req, res) => {
   }
 });
 
-// Get available filters for a specific category
+// Get available filters for a specific category with dynamic options
 const getCategoryFilters = asyncHandler(async (req, res) => {
   const { slug } = req.params;
-  const filters = categoryFilters[slug] || categoryFilters["default"];
-  res.json({ success: true, filters });
+
+  try {
+    // Get base filters for the category
+    let filters = categoryFilters[slug] || categoryFilters["default"];
+
+    // Clone the filters to avoid modifying the original
+    filters = JSON.parse(JSON.stringify(filters));
+
+    // Find category to check if it exists
+    let categoryQuery = {};
+    if (slug && slug !== "general" && slug !== "brand") {
+      const categoryDoc = await Category.findOne({ slug });
+      if (categoryDoc) {
+        categoryQuery.category = categoryDoc._id;
+      }
+    }
+
+    // Dynamically populate brand options
+    const brands = await Product.distinct("brand", categoryQuery);
+    const populatedBrands = await Brand.find({ _id: { $in: brands } }).select(
+      "name"
+    );
+
+    // Update brand filter options
+    const brandFilter = filters.find((f) => f.field === "brand");
+    if (brandFilter && populatedBrands.length > 0) {
+      brandFilter.options = populatedBrands.map((b) => b.name).sort();
+    }
+
+    // For general store, populate category options
+    if (slug === "general") {
+      const categories = await Category.find({ isActive: true }).select("name");
+      const categoryFilter = filters.find((f) => f.field === "category");
+      if (categoryFilter) {
+        categoryFilter.options = categories.map((c) => c.name).sort();
+      }
+    }
+
+    res.json({
+      success: true,
+      filters,
+      categorySlug: slug,
+    });
+  } catch (error) {
+    console.error("Error fetching filters:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to load filters",
+      filters: categoryFilters["default"],
+    });
+  }
 });
 
 // Debug endpoint
