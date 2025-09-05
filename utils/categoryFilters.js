@@ -1,6 +1,6 @@
 module.exports = {
   // 🔌 Inverters
-  inverter: [
+  inverters: [
     {
       field: "brand",
       type: "select",
@@ -94,7 +94,7 @@ module.exports = {
   ],
 
   // 🔋 Batteries
-  battery: [
+  batteries: [
     {
       field: "brand",
       type: "select",

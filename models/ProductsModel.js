@@ -183,6 +183,12 @@ const productSchema = new mongoose.Schema(
       default: [],
     },
 
+    // Category-specific filter values (dynamic based on category)
+    categoryFilters: {
+      type: mongoose.Schema.Types.Mixed,
+      default: {},
+    },
+
     // Relationships
     relatedProducts: {
       type: [mongoose.Schema.Types.ObjectId],

@@ -276,6 +276,72 @@ const getAllProducts = asyncHandler(async (req, res) => {
     Object.assign(query, specFilter);
   });
 
+  // Category-specific filters from categoryFilters field
+  // Handle filters that were set via the admin panel for this category
+  Object.entries(req.query).forEach(([key, value]) => {
+    // Skip internal params and already handled filters
+    const skipParams = new Set([
+      "brand",
+      "isFeatured",
+      "isBestSeller",
+      "isNewArrival",
+      "price_min",
+      "price_max",
+      "rating_min",
+      "rating_max",
+      "sort",
+      "category",
+      "page",
+      "limit",
+      "search",
+      "_t",
+    ]);
+
+    if (
+      skipParams.has(key) ||
+      value === undefined ||
+      value === null ||
+      value === ""
+    )
+      return;
+
+    // Check if this filter exists in categoryFilters
+    if (
+      key === "phase" ||
+      key === "batteryType" ||
+      key === "voltage" ||
+      key === "wattage" ||
+      key === "On-Grid" ||
+      key === "Off-Grid" ||
+      key.includes("_min") ||
+      key.includes("_max")
+    ) {
+      if (key.endsWith("_min") || key.endsWith("_max")) {
+        // Handle range filters
+        const baseField = key.replace(/_min$|_max$/, "");
+        const isMin = key.endsWith("_min");
+
+        if (!query[`categoryFilters.${baseField}`]) {
+          query[`categoryFilters.${baseField}`] = {};
+        }
+
+        if (isMin) {
+          query[`categoryFilters.${baseField}`].$gte = Number(value);
+        } else {
+          query[`categoryFilters.${baseField}`].$lte = Number(value);
+        }
+      } else if (key === "On-Grid" || key === "Off-Grid") {
+        // Handle boolean filters
+        if (value === "true" || value === true) {
+          query[`categoryFilters.${key}`] = true;
+        }
+      } else {
+        // Handle select filters (exact match)
+        query[`categoryFilters.${key}`] = value;
+      }
+    }
+  });
+
   // Pagination - moved before category filter to fix scoping issue
   const page = parseInt(req.query.page) > 0 ? parseInt(req.query.page) : 1;
   const limit = parseInt(req.query.limit) > 0 ? parseInt(req.query.limit) : 20;
@@ -558,6 +624,7 @@ const createProduct = asyncHandler(async (req, res) => {
       relatedProducts,
       videos,
       documents,
+      categoryFilterValues, // New field for category-specific filters
     } = req.body;
 
     // Parse JSON fields with error handling
@@ -584,6 +651,13 @@ const createProduct = asyncHandler(async (req, res) => {
 
     // Process videos - convert simple URLs to structured objects
     parsedVideos = Array.isArray(videos) ? videos : validateJSON(videos, []);
+
+    // Parse category filter values
+    let parsedCategoryFilterValues = {};
+    if (categoryFilterValues) {
+      parsedCategoryFilterValues = validateJSON(categoryFilterValues, {});
+      console.log("Parsed category filter values:", parsedCategoryFilterValues);
+    }
     parsedVideos = parsedVideos.map((video, index) => {
       if (typeof video === "string") {
         // Convert simple URL string to structured object
@@ -700,6 +774,7 @@ const createProduct = asyncHandler(async (req, res) => {
       relatedProducts: parsedRelatedProducts,
       videos: parsedVideos,
       documents: documentObjs,
+      categoryFilters: parsedCategoryFilterValues, // Store category-specific filter values
     });
 
     await newProduct.save();
@@ -1070,9 +1145,17 @@ const getProductBySlug = asyncHandler(async (req, res) => {
 const getCategoryFilters = asyncHandler(async (req, res) => {
   const { slug } = req.params;
 
+  console.log(`[DEBUG] getCategoryFilters called with slug: "${slug}"`);
+
   try {
     // Get base filters for the category
     let filters = categoryFilters[slug] || categoryFilters["default"];
+
+    console.log(`[DEBUG] Found ${filters.length} filters for slug "${slug}"`);
+    console.log(
+      `[DEBUG] First few filter fields:`,
+      filters.slice(0, 3).map((f) => f.field)
+    );
 
     // Clone the filters to avoid modifying the original
     filters = JSON.parse(JSON.stringify(filters));
@@ -1098,8 +1181,8 @@ const getCategoryFilters = asyncHandler(async (req, res) => {
       brandFilter.options = populatedBrands.map((b) => b.name).sort();
     }
 
-    // For general store, populate category options
-    if (slug === "general") {
+    // For general store and brand pages, populate category options
+    if (slug === "general" || slug === "brand") {
       const categories = await Category.find({ isActive: true }).select("name");
       const categoryFilter = filters.find((f) => f.field === "category");
       if (categoryFilter) {
