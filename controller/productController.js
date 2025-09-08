@@ -386,15 +386,83 @@ const getAllProducts = asyncHandler(async (req, res) => {
     }
   }
 
+  // If category is provided, apply specification-style filters similar to getProductsByCategory
+  // This ensures brand pages (which call getAllProducts with a brand + category) filter the same
+  // as category pages (uses specifications.items $elemMatch).
+  if (req.query.category) {
+    const specFilters = [];
+    Object.entries(req.query).forEach(([key, value]) => {
+      // Skip standard non-spec params
+      if (
+        [
+          "brand",
+          "isFeatured",
+          "isBestSeller",
+          "isNewArrival",
+          "price_min",
+          "price_max",
+          "rating_min",
+          "rating_max",
+          "sort",
+          "category",
+          "page",
+          "limit",
+          "search",
+          "_t",
+        ].includes(key)
+      ) {
+        return;
+      }
+
+      if (key.endsWith("_min")) {
+        const field = key.replace(/_min$/, "");
+        specFilters.push({
+          "specifications.items": {
+            $elemMatch: { name: field, value: { $gte: Number(value) } },
+          },
+        });
+      } else if (key.endsWith("_max")) {
+        const field = key.replace(/_max$/, "");
+        specFilters.push({
+          "specifications.items": {
+            $elemMatch: { name: field, value: { $lte: Number(value) } },
+          },
+        });
+      } else {
+        // exact match (strings / booleans)
+        specFilters.push({
+          "specifications.items": { $elemMatch: { name: key, value: value } },
+        });
+      }
+    });
+
+    if (specFilters.length > 0) {
+      if (!query.$and) query.$and = [];
+      query.$and.push(...specFilters);
+    }
+  }
+
   // Enable aggressive caching for better performance
   const cacheKey = `products:${JSON.stringify(query)}:${sort}:${page}:${limit}`;
   const { getFromCache, setCache } = require("../utils/redisCache");
 
-  // Try cache first (5 minute cache)
-  const cachedResult = await getFromCache(cacheKey);
-  if (cachedResult) {
-    console.log("🚀 Serving from cache:", cacheKey);
-    return res.status(200).json(cachedResult);
+  // Decide whether to use cache: skip cache if the request contains dynamic filters
+  // beyond brand/sort/page/limit (for example: category, On-Grid, phase, etc.)
+  const nonCacheAllowedKeys = ["brand", "sort", "page", "limit"];
+  const queryKeys = Object.keys(req.query || {}).filter(
+    (k) => req.query[k] !== undefined && req.query[k] !== ""
+  );
+  const dynamicKeys = queryKeys.filter((k) => !nonCacheAllowedKeys.includes(k));
+
+  if (dynamicKeys.length === 0) {
+    // Try cache first (5 minute cache)
+    const cachedResult = await getFromCache(cacheKey);
+    if (cachedResult) {
+      console.log("🚀 Serving from cache:", cacheKey);
+      return res.status(200).json(cachedResult);
+    }
+  } else {
+    console.log("Skipping cache for dynamic query keys:", dynamicKeys);
   }
 
   // Set appropriate cache headers (cache for 5 minutes)

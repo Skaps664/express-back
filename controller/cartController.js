@@ -50,13 +50,24 @@ const addToCart = asyncHandler(async (req, res) => {
     user.cart[cartItemIndex].quantity = quantity;
     user.cart[cartItemIndex].selectedVariant =
       selectedVariant || user.cart[cartItemIndex].selectedVariant;
+    // If a variant with a price is provided, update the stored item price
+    if (selectedVariant && selectedVariant.price) {
+      user.cart[cartItemIndex].price = selectedVariant.price;
+    } else if (!user.cart[cartItemIndex].price) {
+      // ensure there's always a price value
+      user.cart[cartItemIndex].price = product.price;
+    }
   } else {
     // Add new item to cart
+    let variantPrice = null;
+    if (selectedVariant && selectedVariant.price) {
+      variantPrice = selectedVariant.price;
+    }
     user.cart.push({
       product: productId,
       quantity,
       selectedVariant,
-      price: product.price,
+      price: variantPrice !== null ? variantPrice : product.price,
       name: product.name,
       image:
         product.images && product.images.length > 0 ? product.images[0] : null,
@@ -64,7 +75,13 @@ const addToCart = asyncHandler(async (req, res) => {
   }
 
   // Save user with updated cart
-  await user.save();
+  try {
+    await user.save();
+  } catch (err) {
+    console.error("[cartController] Error saving user cart:", err);
+    res.status(500);
+    throw new Error("Failed to save cart");
+  }
 
   // Populate product details in cart
   const populatedUser = await User.findById(userId).populate({
@@ -76,10 +93,11 @@ const addToCart = asyncHandler(async (req, res) => {
     },
   });
 
-  // Calculate cart total
+  // Calculate cart total (safe: handle missing product or price)
   let cartTotal = 0;
   populatedUser.cart.forEach((item) => {
-    cartTotal += (item.price || item.product.price) * item.quantity;
+    const unitPrice = item.price ?? item.product?.price ?? 0;
+    cartTotal += unitPrice * item.quantity;
   });
 
   res.status(200).json({
@@ -116,7 +134,8 @@ const getCart = asyncHandler(async (req, res) => {
   // Calculate cart totals
   let cartTotal = 0;
   user.cart.forEach((item) => {
-    cartTotal += (item.price || item.product.price) * item.quantity;
+    const unitPrice = item.price ?? item.product?.price ?? 0;
+    cartTotal += unitPrice * item.quantity;
   });
 
   res.status(200).json({
@@ -199,7 +218,8 @@ const updateCartItem = asyncHandler(async (req, res) => {
   // Calculate cart totals
   let cartTotal = 0;
   updatedUser.cart.forEach((item) => {
-    cartTotal += (item.price || item.product.price) * item.quantity;
+    const unitPrice = item.price ?? item.product?.price ?? 0;
+    cartTotal += unitPrice * item.quantity;
   });
 
   res.status(200).json({
@@ -253,7 +273,8 @@ const removeCartItem = asyncHandler(async (req, res) => {
   // Calculate cart totals
   let cartTotal = 0;
   updatedUser.cart.forEach((item) => {
-    cartTotal += (item.price || item.product.price) * item.quantity;
+    const unitPrice = item.price ?? item.product?.price ?? 0;
+    cartTotal += unitPrice * item.quantity;
   });
 
   res.status(200).json({
