@@ -125,6 +125,9 @@ const getAllProducts = asyncHandler(async (req, res) => {
   if (req.query["Off-Grid"] === "true") {
     query["specifications.Type"] = "Off-Grid";
   }
+  if (req.query["Hybrid"] === "true") {
+    query["specifications.Type"] = "Hybrid";
+  }
 
   if (req.query.powerRating_min || req.query.powerRating_max) {
     query["specifications.PowerRating"] = {};
@@ -1216,22 +1219,39 @@ const getCategoryFilters = asyncHandler(async (req, res) => {
   console.log(`[DEBUG] getCategoryFilters called with slug: "${slug}"`);
 
   try {
-    // Get base filters for the category
-    let filters = categoryFilters[slug] || categoryFilters["default"];
+    // Determine which filter set to use. Accept either slug or human-readable name.
+    let filterKey = slug;
 
-    console.log(`[DEBUG] Found ${filters.length} filters for slug "${slug}"`);
+    // If no direct key found in categoryFilters, try to resolve via Category model
+    if (!categoryFilters[filterKey]) {
+      if (slug && slug !== "general" && slug !== "brand") {
+        // Try finding category by slug or name (case-insensitive for name)
+        const categoryDoc = await Category.findOne({
+          $or: [{ slug: slug }, { name: new RegExp(`^${slug}$`, "i") }],
+        });
+        if (categoryDoc && categoryDoc.slug) {
+          filterKey = categoryDoc.slug;
+        }
+      }
+    }
+
+    // Get base filters for the resolved key
+    let filters = categoryFilters[filterKey] || categoryFilters["default"];
+
     console.log(
-      `[DEBUG] First few filter fields:`,
-      filters.slice(0, 3).map((f) => f.field)
+      `[DEBUG] getCategoryFilters resolved key: "${filterKey}" for param "${slug}"`
+    );
+    console.log(
+      `[DEBUG] Found ${filters.length} filters for key "${filterKey}"`
     );
 
     // Clone the filters to avoid modifying the original
     filters = JSON.parse(JSON.stringify(filters));
 
-    // Find category to check if it exists
+    // Find category to check if it exists (used to scope brand options)
     let categoryQuery = {};
-    if (slug && slug !== "general" && slug !== "brand") {
-      const categoryDoc = await Category.findOne({ slug });
+    if (filterKey && filterKey !== "general" && filterKey !== "brand") {
+      const categoryDoc = await Category.findOne({ slug: filterKey });
       if (categoryDoc) {
         categoryQuery.category = categoryDoc._id;
       }
@@ -1251,17 +1271,25 @@ const getCategoryFilters = asyncHandler(async (req, res) => {
 
     // For general store and brand pages, populate category options
     if (slug === "general" || slug === "brand") {
-      const categories = await Category.find({ isActive: true }).select("name");
+      const categories = await Category.find({ isActive: true }).select(
+        "name slug"
+      );
       const categoryFilter = filters.find((f) => f.field === "category");
       if (categoryFilter) {
-        categoryFilter.options = categories.map((c) => c.name).sort();
+        // Provide both name and slug so frontend can render labels and send slug values
+        categoryFilter.options = categories
+          .map((c) => ({ name: c.name, slug: c.slug }))
+          .sort((a, b) => a.name.localeCompare(b.name));
       }
     }
 
+    console.log(
+      `[DEBUG] Returning ${filters.length} filters for key "${filterKey}"`
+    );
     res.json({
       success: true,
       filters,
-      categorySlug: slug,
+      categorySlug: filterKey,
     });
   } catch (error) {
     console.error("Error fetching filters:", error);

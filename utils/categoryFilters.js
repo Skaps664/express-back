@@ -17,6 +17,7 @@ module.exports = {
     },
     { field: "On-Grid", type: "boolean", label: "On-Grid" },
     { field: "Off-Grid", type: "boolean", label: "Off -Grid" },
+    { field: "Hybrid", type: "boolean", label: "Hybrid" },
 
     {
       field: "phase",
