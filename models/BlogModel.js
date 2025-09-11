@@ -245,6 +245,23 @@ blogSchema.virtual("readingTimeText").get(function () {
   return `${this.readingTime} min read`;
 });
 
+// Sanitize fields before validation to avoid casting empty strings to ObjectId
+blogSchema.pre('validate', function(next) {
+  try {
+    if (this.primaryProduct === '') this.primaryProduct = undefined;
+    if (this.primaryBrand === '') this.primaryBrand = undefined;
+    if (Array.isArray(this.relatedProducts)) {
+      this.relatedProducts = this.relatedProducts.filter(Boolean);
+    }
+    if (Array.isArray(this.relatedBrands)) {
+      this.relatedBrands = this.relatedBrands.filter(Boolean);
+    }
+  } catch (e) {
+    // ignore
+  }
+  next();
+});
+
 const Blog = mongoose.model("Blog", blogSchema);
 
 module.exports = Blog;

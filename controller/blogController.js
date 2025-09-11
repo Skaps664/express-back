@@ -22,9 +22,44 @@ const generateSlug = (title) => {
 // Create a new blog
 const createBlog = asyncHandler(async (req, res) => {
   try {
-    console.log("🔍 Blog creation request received");
-    console.log("📋 Request body:", JSON.stringify(req.body, null, 2));
-    console.log("👤 User:", req.user ? req.user._id : "No user");
+    console.log('📥 createBlog payload:', JSON.stringify(req.body));
+    const updateData = req.body;
+  const mongoose = require('mongoose');
+
+  // Helper to validate or remove ObjectId-like fields
+  const sanitizeIdField = (obj, key, allowNull = true) => {
+    if (!obj || typeof obj !== 'object') return;
+    if (obj[key] === undefined) return;
+    if (obj[key] === '' || obj[key] === null) {
+      if (allowNull) delete obj[key];
+      return;
+    }
+    if (typeof obj[key] === 'string' && !mongoose.Types.ObjectId.isValid(obj[key])) {
+      // Remove invalid id to avoid CastError; we log and delete
+      console.warn(`Invalid ObjectId for ${key}:`, obj[key]);
+      delete obj[key];
+      return;
+    }
+  };
+
+  // Sanitize primary fields
+  sanitizeIdField(updateData, 'primaryProduct');
+  sanitizeIdField(updateData, 'primaryBrand');
+
+  // Sanitize related arrays and validate their IDs
+  if (Array.isArray(updateData.relatedProducts)) {
+    updateData.relatedProducts = updateData.relatedProducts
+      .filter(Boolean)
+      .filter((id) => typeof id === 'string' && mongoose.Types.ObjectId.isValid(id));
+  }
+  if (Array.isArray(updateData.relatedBrands)) {
+    updateData.relatedBrands = updateData.relatedBrands
+      .filter(Boolean)
+      .filter((id) => typeof id === 'string' && mongoose.Types.ObjectId.isValid(id));
+  }
+
+  // Sanitize category if provided
+  sanitizeIdField(updateData, 'category', false);
 
     const {
       title,
@@ -49,7 +84,7 @@ const createBlog = asyncHandler(async (req, res) => {
       isFeatured,
       isSticky,
       allowComments,
-    } = req.body;
+    } = updateData;
 
     // Validate required fields
     if (!title || !title.en) {
@@ -94,10 +129,10 @@ const createBlog = asyncHandler(async (req, res) => {
       gallery: gallery || [],
       category: category,
       tags: tags || [],
-      relatedProducts: relatedProducts || [],
-      relatedBrands: relatedBrands || [],
-      primaryProduct: primaryProduct,
-      primaryBrand: primaryBrand,
+  relatedProducts: relatedProducts || [],
+  relatedBrands: relatedBrands || [],
+  primaryProduct: primaryProduct === '' ? null : primaryProduct,
+  primaryBrand: primaryBrand === '' ? null : primaryBrand,
       author: req.user._id,
       authorName: authorName || req.user.name || "Admin",
       authorBio: authorBio,
@@ -133,8 +168,14 @@ const createBlog = asyncHandler(async (req, res) => {
       });
     }
 
+    // Sanitize related arrays and primary fields to avoid empty strings
+    blogData.relatedProducts = (blogData.relatedProducts || []).filter(Boolean);
+    blogData.relatedBrands = (blogData.relatedBrands || []).filter(Boolean);
+    if (blogData.primaryProduct === '') blogData.primaryProduct = null;
+    if (blogData.primaryBrand === '') blogData.primaryBrand = null;
+
     // Validate related products and brands if provided
-    if (blogData.relatedProducts?.length) {
+    if (blogData.relatedProducts.length) {
       const validProducts = await Products.find({
         _id: { $in: blogData.relatedProducts },
       });
@@ -146,7 +187,7 @@ const createBlog = asyncHandler(async (req, res) => {
       }
     }
 
-    if (blogData.relatedBrands?.length) {
+    if (blogData.relatedBrands.length) {
       const validBrands = await Brand.find({
         _id: { $in: blogData.relatedBrands },
       });
@@ -160,7 +201,25 @@ const createBlog = asyncHandler(async (req, res) => {
 
     const blog = new Blog(blogData);
 
-    const savedBlog = await blog.save();
+    // Defensive save: if Mongoose throws a Cast error for ObjectId fields
+    // try removing problematic fields and retry once.
+    let savedBlog;
+    try {
+      savedBlog = await blog.save();
+    } catch (saveError) {
+      console.error('Error saving blog, attempting sanitization retry:', saveError.message);
+      if (/Cast to ObjectId failed/.test(saveError.message)) {
+        // Remove problematic primary fields and retry
+        try {
+          if (blog.primaryProduct === '') delete blog.primaryProduct;
+          if (blog.primaryBrand === '') delete blog.primaryBrand;
+        } catch (e) {}
+        // Retry save once
+        savedBlog = await blog.save();
+      } else {
+        throw saveError;
+      }
+    }
 
     // Update category blog count
     await blogCategory.updateBlogCount();
@@ -231,7 +290,7 @@ const createBlog = asyncHandler(async (req, res) => {
       stack: error.stack,
       body: req.body,
     });
-    throw error;
+    return res.status(400).json({ success: false, message: error.message });
   }
 });
 
@@ -415,7 +474,27 @@ const getBlogBySlug = asyncHandler(async (req, res) => {
 // Update blog
 const updateBlog = asyncHandler(async (req, res) => {
   const { id } = req.params;
+  console.log('📥 updateBlog payload:', JSON.stringify(req.body));
   const updateData = req.body;
+  try {
+  // Fix: Convert empty string for primaryProduct and primaryBrand to null
+  if (updateData.primaryProduct === "") {
+    delete updateData.primaryProduct;
+  }
+  if (updateData.primaryBrand === "") {
+    delete updateData.primaryBrand;
+  }
+
+  // Debug: log sanitized update data
+  console.log('🔁 Updating blog - sanitized updateData:', JSON.stringify(updateData));
+
+  // Sanitize related arrays to remove empty entries
+  if (Array.isArray(updateData.relatedProducts)) {
+    updateData.relatedProducts = updateData.relatedProducts.filter(Boolean);
+  }
+  if (Array.isArray(updateData.relatedBrands)) {
+    updateData.relatedBrands = updateData.relatedBrands.filter(Boolean);
+  }
 
   const blog = await Blog.findById(id);
   if (!blog) {
@@ -524,10 +603,10 @@ const updateBlog = asyncHandler(async (req, res) => {
     }
   }
 
-  const updatedBlog = await Blog.findByIdAndUpdate(id, updateData, {
-    new: true,
-    runValidators: true,
-  });
+    const updatedBlog = await Blog.findByIdAndUpdate(id, updateData, {
+      new: true,
+      runValidators: true,
+    });
 
   // Clear all blog-related cache and affected product caches
   const cacheInvalidationPromises = [
@@ -587,13 +666,18 @@ const updateBlog = asyncHandler(async (req, res) => {
     }
   }
 
-  await Promise.all(cacheInvalidationPromises);
+    await Promise.all(cacheInvalidationPromises);
 
-  res.json({
-    success: true,
-    message: "Blog updated successfully",
-    blog: updatedBlog,
-  });
+    res.json({
+      success: true,
+      message: "Blog updated successfully",
+      blog: updatedBlog,
+    });
+  } catch (error) {
+    console.error('❌ Blog update error:', error);
+    console.error('📋 Error details:', { message: error.message, stack: error.stack, body: req.body });
+    return res.status(400).json({ success: false, message: error.message });
+  }
 });
 
 // Delete blog
