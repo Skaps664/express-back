@@ -346,8 +346,18 @@ const getAllProducts = asyncHandler(async (req, res) => {
   });
 
   // Pagination - moved before category filter to fix scoping issue
+  // Pagination: allow admin requests to fetch all products by default
   const page = parseInt(req.query.page) > 0 ? parseInt(req.query.page) : 1;
-  const limit = parseInt(req.query.limit) > 0 ? parseInt(req.query.limit) : 20;
+  let limit;
+  if (isAdmin) {
+    // For admin endpoints, if no explicit limit is provided, return a very large
+    // limit so the admin UI receives the full set of products without changing
+    // product creation/update logic. If the client provides a limit query param,
+    // respect it.
+    limit = parseInt(req.query.limit) > 0 ? parseInt(req.query.limit) : 10000;
+  } else {
+    limit = parseInt(req.query.limit) > 0 ? parseInt(req.query.limit) : 20;
+  }
   const skip = (page - 1) * limit;
 
   // Category filter
