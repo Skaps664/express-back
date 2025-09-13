@@ -356,7 +356,8 @@ const getAllProducts = asyncHandler(async (req, res) => {
     // respect it.
     limit = parseInt(req.query.limit) > 0 ? parseInt(req.query.limit) : 10000;
   } else {
-    limit = parseInt(req.query.limit) > 0 ? parseInt(req.query.limit) : 20;
+    // Public site default: show 12 products per page
+    limit = parseInt(req.query.limit) > 0 ? parseInt(req.query.limit) : 12;
   }
   const skip = (page - 1) * limit;
 
@@ -642,17 +643,18 @@ const getProductsByCategory = asyncHandler(async (req, res) => {
     sortQuery = { score: { $meta: "textScore" } };
   }
 
+  // Ensure we only call .sort once. Use sortQuery which may be textScore or computed sortObj
   const [products, total] = await Promise.all([
     Product.find(query, projection)
-      .sort(sortQuery)
-      .populate("brand", "name slug") // Already correct
-      .populate("category", "name slug") // Already correct
+      .populate("brand", "name slug")
+      .populate("category", "name slug")
       .select(
         "name slug price originalPrice discountPercentage stock images specifications isFeatured isBestSeller reviews viewCount variants"
       )
-      .sort(sortObj)
+      .sort(sortQuery)
       .skip(skip)
-      .limit(limit),
+      .limit(limit)
+      .lean(),
     Product.countDocuments(query),
   ]);
 
@@ -1268,15 +1270,52 @@ const getCategoryFilters = asyncHandler(async (req, res) => {
     }
 
     // Dynamically populate brand options
-    const brands = await Product.distinct("brand", categoryQuery);
-    const populatedBrands = await Brand.find({ _id: { $in: brands } }).select(
-      "name"
+    // For general/brand pages we want to show ALL active brands. For
+    // category-specific pages show only brands that have products in that
+    // category. Products may store brand as ObjectId or as slug/string in
+    // some older records, so handle both cases when resolving Brand docs.
+    const distinctBrandValues = await Product.distinct("brand", categoryQuery);
+
+    // Separate ObjectId-like values from string slugs
+    const mongoose = require("mongoose");
+    const objectIdValues = distinctBrandValues.filter((v) =>
+      mongoose.Types.ObjectId.isValid(String(v))
     );
+    const stringValues = distinctBrandValues.filter(
+      (v) => typeof v === "string" && !mongoose.Types.ObjectId.isValid(v)
+    );
+
+    // Build query to find Brand docs matching either _id or slug
+    const brandQueryParts = [];
+    if (objectIdValues.length > 0) {
+      brandQueryParts.push({ _id: { $in: objectIdValues } });
+    }
+    if (stringValues.length > 0) {
+      brandQueryParts.push({ slug: { $in: stringValues } });
+    }
+
+    const populatedBrands = brandQueryParts.length
+      ? await Brand.find({ $or: brandQueryParts }).select("name slug")
+      : [];
 
     // Update brand filter options
     const brandFilter = filters.find((f) => f.field === "brand");
-    if (brandFilter && populatedBrands.length > 0) {
-      brandFilter.options = populatedBrands.map((b) => b.name).sort();
+    if (brandFilter) {
+      if (slug === "general" || slug === "brand") {
+        // Show all active brands (name + slug) so frontend can render label
+        // and use slug as the filter value.
+        const allBrands = await Brand.find({ isActive: true }).select(
+          "name slug"
+        );
+        brandFilter.options = allBrands
+          .map((b) => ({ name: b.name, slug: b.slug }))
+          .sort((a, b) => a.name.localeCompare(b.name));
+      } else if (populatedBrands.length > 0) {
+        // Category-scoped: show only brands that have products in this category
+        brandFilter.options = populatedBrands
+          .map((b) => ({ name: b.name, slug: b.slug }))
+          .sort((a, b) => a.name.localeCompare(b.name));
+      }
     }
 
     // For general store and brand pages, populate category options
