@@ -56,6 +56,13 @@ const categorySchema = new mongoose.Schema(
         ref: "Brand",
       },
     ],
+    // Header-specific ordering for top brands (array of Brand ObjectIds, max 6)
+    headerBrandOrder: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Brand",
+      },
+    ],
 
     // Status
     isActive: {

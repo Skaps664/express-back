@@ -37,6 +37,7 @@ const createCategory = asyncHandler(async (req, res) => {
     isActive: isActive !== undefined ? Boolean(isActive) : true,
     isFeatured: isFeatured !== undefined ? Boolean(isFeatured) : false,
     sortOrder: req.body.sortOrder || 0,
+    headerBrandOrder: req.body.headerBrandOrder || [],
   });
 
   await category.save(); // triggers pre-save hook
@@ -79,6 +80,10 @@ const updateCategory = asyncHandler(async (req, res) => {
 
   if (req.body.popularBrands) {
     category.popularBrands = req.body.popularBrands;
+  }
+
+  if (req.body.headerBrandOrder) {
+    category.headerBrandOrder = req.body.headerBrandOrder;
   }
 
   const updatedCategory = await category.save();
@@ -258,7 +263,7 @@ const getAllCategoriesAdmin = asyncHandler(async (req, res) => {
   const categories = await Category.find({})
     .populate("parentCategory", "name")
     .select(
-      "name slug description icon level parentCategory isActive isFeatured productCount sortOrder createdAt updatedAt"
+      "name slug description icon level parentCategory isActive isFeatured productCount sortOrder headerBrandOrder createdAt updatedAt"
     )
     .sort({ level: 1, sortOrder: 1, name: 1 });
 
@@ -271,7 +276,7 @@ const getAllCategoriesAdmin = asyncHandler(async (req, res) => {
   const updatedCategories = await Category.find({})
     .populate("parentCategory", "name")
     .select(
-      "name slug description icon level parentCategory isActive isFeatured productCount sortOrder createdAt updatedAt"
+      "name slug description icon level parentCategory isActive isFeatured productCount sortOrder headerBrandOrder createdAt updatedAt"
     )
     .sort({ level: 1, sortOrder: 1, name: 1 });
 
@@ -287,22 +292,38 @@ const getCategoriesWithBrands = asyncHandler(async (req, res) => {
       isActive: true,
       level: 1,
     })
-      .select("name slug icon")
+      .select("name slug icon headerBrandOrder")
       .sort({ name: 1 });
 
     // For each category, find brands that have products in that category
     const categoriesWithBrands = await Promise.all(
       categories.map(async (category) => {
+        // Query brands that are associated to this category via the 'categories' field
         const brands = await Brand.find({
           isActive: true,
-          productCategories: category._id,
+          categories: category._id,
         })
           .select("name slug logo")
           .sort({ name: 1 });
 
+        // Map brands into a lookup by id for ordering
+        const brandLookup = {};
+        brands.forEach((b) => {
+          brandLookup[b._id.toString()] = b;
+        });
+
+        // Apply headerBrandOrder if present: put specified brands on top in the configured order (max 6)
+        let orderedBrands = brands;
+        if (category.headerBrandOrder && category.headerBrandOrder.length) {
+          const topIds = category.headerBrandOrder.slice(0, 6).map((id) => id.toString());
+          const topBrands = topIds.map((id) => brandLookup[id]).filter(Boolean);
+          const remaining = brands.filter((b) => !topIds.includes(b._id.toString()));
+          orderedBrands = [...topBrands, ...remaining];
+        }
+
         // For each brand, get subcategories (product types) they have in this category
         const brandsWithSubcategories = await Promise.all(
-          brands.map(async (brand) => {
+          orderedBrands.map(async (brand) => {
             // Get products from this brand in this category to determine subcategories
             const products = await Product.find({
               brand: brand._id,
@@ -357,7 +378,18 @@ const getBrandsForCategory = asyncHandler(async (req, res) => {
       "name slug logo banner thumbnail description isFeatured"
     );
 
-    res.json({ category: category.name, brands });
+    // Order brands: top 6 from headerBrandOrder, then the rest
+    let orderedBrands = brands;
+    if (category.headerBrandOrder && category.headerBrandOrder.length) {
+      const topIds = category.headerBrandOrder.slice(0, 6).map(id => id.toString());
+      const brandLookup = {};
+      brands.forEach(b => { brandLookup[b._id.toString()] = b; });
+      const topBrands = topIds.map(id => brandLookup[id]).filter(Boolean);
+      const remaining = brands.filter(b => !topIds.includes(b._id.toString()));
+      orderedBrands = [...topBrands, ...remaining];
+    }
+
+    res.json({ category: category.name, brands: orderedBrands });
   } catch (error) {
     console.error("Error fetching brands for category:", error);
     res.status(500).json({ message: "Internal server error" });

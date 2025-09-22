@@ -51,6 +51,7 @@ const blogRoute = require("./routes/blogRoute");
 const blogCategoryRoute = require("./routes/blogCategoryRoute");
 const uploadRoute = require("./routes/uploadRoute");
 const homePromotionRoute = require("./routes/homePromotionRoute");
+const partnershipRoute = require("./routes/partnershipRoute");
 
 const app = express();
 
@@ -326,6 +327,7 @@ app.use("/api/blog-categories", blogCategoryRoute);
 app.use("/api/upload", rateLimiters.admin, uploadRoute);
 app.use("/api/test", testRoute);
 app.use("/api/home-promotion", homePromotionRoute);
+app.use("/api/partnership", partnershipRoute);
 
 // Metrics endpoint for monitoring (protected)
 app.get("/api/metrics", async (req, res) => {
