@@ -23,6 +23,7 @@ const {
   getUserStats,
   getUsersAdmin,
   getUserProfile,
+  createAdminUser,
   recordPurchase,
   getPurchaseHistory,
   changePassword,
@@ -59,6 +60,9 @@ router.get("/all", authMiddleware, isAdmin, getAllUsers);
 router.get("/admin/stats", authMiddleware, isAdmin, getUserStats);
 router.get("/admin/users", authMiddleware, isAdmin, getUsersAdmin);
 router.get("/admin/profile/:id", authMiddleware, isAdmin, getUserProfile);
+
+// Create a simple admin user (only current admins can call)
+router.post('/admin/create', authMiddleware, isAdmin, createAdminUser);
 
 // Change password route (MUST come before /:id routes)
 router.put("/change-password", authMiddleware, changePassword);

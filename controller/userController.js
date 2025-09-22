@@ -689,13 +689,14 @@ const getUsersAdmin = asyncHandler(async (req, res) => {
       sortOrder = "desc",
     } = req.query;
 
-    // Build query based on status filter
-    let query = {};
+    // Build query that ensures only admin users are returned
+    const adminFilter = { $or: [{ isAdmin: true }, { role: 'admin' }] };
+    const andConditions = [adminFilter];
 
     if (status === "active") {
-      query.isBlocked = false;
+      andConditions.push({ isBlocked: false });
     } else if (status === "blocked") {
-      query.isBlocked = true;
+      andConditions.push({ isBlocked: true });
     } else if (status === "flagged") {
       // Simple flagging logic - users with no cart/wishlist items
       const flaggedUserIds = await User.find({
@@ -709,17 +710,21 @@ const getUsersAdmin = asyncHandler(async (req, res) => {
           },
         ],
       }).select("_id");
-      query._id = { $in: flaggedUserIds.map((u) => u._id) };
+      andConditions.push({ _id: { $in: flaggedUserIds.map((u) => u._id) } });
     }
 
-    // Add search functionality
+    // Add search functionality (intersect with admin filter)
     if (search) {
-      query.$or = [
-        { name: { $regex: search, $options: "i" } },
-        { email: { $regex: search, $options: "i" } },
-        { mobile: { $regex: search, $options: "i" } },
-      ];
+      andConditions.push({
+        $or: [
+          { name: { $regex: search, $options: "i" } },
+          { email: { $regex: search, $options: "i" } },
+          { mobile: { $regex: search, $options: "i" } },
+        ],
+      });
     }
+
+    const query = andConditions.length > 1 ? { $and: andConditions } : andConditions[0];
 
     // Sorting
     const sortOptions = {};
@@ -996,6 +1001,64 @@ const getUserAddresses = asyncHandler(async (req, res) => {
   }
 });
 
+// CREATE ADMIN USER (by existing admin)
+const createAdminUser = asyncHandler(async (req, res) => {
+  const { name, email, password, cnic, mobile, adress } = req.body;
+
+  if (!name || !email || !password || !mobile) {
+    return res.status(400).json({ success: false, message: 'name, email, password and mobile are required' });
+  }
+
+  // Normalize inputs
+  const normalizedEmail = String(email).toLowerCase().trim();
+  const normalizedName = String(name).trim();
+  const normalizedMobile = String(mobile).trim();
+
+  // Check duplicates for name, email and mobile
+  const existingName = await User.findOne({ name: normalizedName }).lean();
+  if (existingName) {
+    return res.status(409).json({ success: false, message: 'Name already in use' });
+  }
+
+  const existingEmail = await User.findOne({ email: normalizedEmail }).lean();
+  if (existingEmail) {
+    return res.status(409).json({ success: false, message: 'Email already in use' });
+  }
+
+  const existingMobile = await User.findOne({ mobile: normalizedMobile }).lean();
+  if (existingMobile) {
+    return res.status(409).json({ success: false, message: 'Mobile number already in use' });
+  }
+
+  try {
+    const newAdmin = new User({
+      name: normalizedName,
+      email: normalizedEmail,
+      password,
+      mobile: normalizedMobile,
+      cnic: cnic || undefined,
+      adress: adress || [],
+      role: 'admin',
+      isAdmin: true,
+    });
+
+    await newAdmin.save();
+
+    // Return created admin without tokens or cookies
+    const safeAdmin = await User.findById(newAdmin._id).select('-password -refreshToken');
+
+    return res.status(201).json({ success: true, message: 'Admin created', data: safeAdmin });
+  } catch (err) {
+    console.error('createAdminUser error:', err);
+    // Handle Mongo duplicate key error more gracefully
+    if (err && err.code === 11000) {
+      const dupField = Object.keys(err.keyValue || {})[0] || 'field';
+      return res.status(409).json({ success: false, message: `${dupField} already exists` });
+    }
+    return res.status(500).json({ success: false, message: 'Server error creating admin', error: err?.message });
+  }
+});
+
 // ADD USER ADDRESS
 const addUserAddress = asyncHandler(async (req, res) => {
   const userId = req.user._id;
@@ -1255,6 +1318,7 @@ const changePassword = asyncHandler(async (req, res) => {
 });
 
 module.exports = {
+  createAdminUser,
   createUser,
   loginUser,
   logoutUser,

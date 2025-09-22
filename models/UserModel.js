@@ -85,6 +85,10 @@ var userSchema = new mongoose.Schema(
       type: String,
       trim: true,
     },
+    cnic: {
+      type: String,
+      trim: true,
+    },
     createdAt: {
       type: Date,
       default: Date.now,
