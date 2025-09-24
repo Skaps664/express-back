@@ -253,7 +253,7 @@ app.get("/", (req, res) => {
   );
   res.status(200).json({
     success: true,
-    message: "Solar Express API is running",
+    message: "Solar Express API is running and best",
     status: "ok",
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV,
