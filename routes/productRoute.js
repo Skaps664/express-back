@@ -43,9 +43,8 @@ router.post(
   }
 );
 
-// Cached routes for high performance
-// GET all products with caching
-router.get("/", cacheConfigs.products, getAllProducts);
+// GET all products - cache disabled to ensure filters work
+router.get("/", getAllProducts);
 
 // Admin endpoint without caching for real-time data
 router.get("/admin/all", authMiddleware, isAdmin, async (req, res, next) => {

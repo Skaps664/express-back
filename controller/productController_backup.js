@@ -7,6 +7,11 @@ const categoryFilters = require("../utils/categoryFilters");
 const { cloudinaryUploadImage } = require("../utils/cloudinary");
 const validateMongoId = require("../utils/validateMongoId"); // or your inline function
 
+// Helper to escape regex special characters for safe $regex creation
+function escapeRegex(text) {
+  return String(text).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 // Helper to get sort object from query
 function getSortObject(sort) {
   switch (sort) {
@@ -28,23 +33,8 @@ function getSortObject(sort) {
 // Get all products with sorting and pagination
 const getAllProducts = asyncHandler(async (req, res) => {
   console.log("Request URL:", req.originalUrl);
-  console.log(
-    "Auth user:",
-    req.user ? { id: req.user._id, role: req.user.role } : "No user"
-  );
-  
-  // Debug filter parameters
-  console.log("🔍 Backend Filter Debug:", {
-    isFeatured: req.query.isFeatured,
-    isBestSeller: req.query.isBestSeller,
-    isNewArrival: req.query.isNewArrival,
-    priceRange: req.query.priceRange,
-    price_min: req.query.price_min,
-    price_max: req.query.price_max,
-    rating_min: req.query.rating_min,
-    rating_max: req.query.rating_max,
-    allQueryParams: req.query
-  });
+  console.log("Auth user:", req.user ? { id: req.user._id, role: req.user.role } : "No user");
+  console.log("🔍 Incoming filter query params:", JSON.stringify(req.query, null, 2));
 
   const sort = req.query.sort || "newest";
   const sortObj = getSortObject(sort);
@@ -53,8 +43,12 @@ const getAllProducts = asyncHandler(async (req, res) => {
 
   // For admin routes, show all products. For public routes, only show active ones
   let query = {};
-  if (!isAdmin) {
-    query.isActive = { $ne: false };
+
+  // If no filters or category are selected, return all products (public)
+  const filterKeys = Object.keys(req.query).filter(k => !['sort','page','limit','search','_t'].includes(k));
+  if (!req.query.category && filterKeys.length === 0 && !isAdmin) {
+    // No category or filters: show all active products
+    query = { isActive: { $ne: false } };
   }
 
   // Basic validation
@@ -65,126 +59,129 @@ const getAllProducts = asyncHandler(async (req, res) => {
     console.error("Error counting products:", error);
   }
 
-  console.log("🔍 Building query object...");
-  
-  // General filters
-  // Brand
+  // Universal filters
   if (req.query.brand) {
-    console.log("👤 Brand filter:", req.query.brand);
+    // Handle brand filter - can be brand name, brand slug, or brand ID
+    const brandSearch = [];
+    brandSearch.push({ name: req.query.brand });
+    brandSearch.push({ slug: req.query.brand });
+    // Only attempt _id match when the value looks like a Mongo ObjectId
     const mongoose = require("mongoose");
-    const brandSearch = [
-      { name: req.query.brand },
-      { slug: req.query.brand }
-    ];
-    if (mongoose.Types.ObjectId.isValid(req.query.brand)) {
+    if (
+      typeof req.query.brand === "string" &&
+      mongoose.Types.ObjectId.isValid(req.query.brand)
+    ) {
       brandSearch.push({ _id: req.query.brand });
     }
+
     const brandDoc = await Brand.findOne({ $or: brandSearch });
     if (brandDoc) {
       query.brand = brandDoc._id;
-      console.log("✅ Brand filter applied:", brandDoc.name);
     }
   }
-  // Featured
-  if (req.query.isFeatured === "true") {
-    query.isFeatured = true;
-    console.log("⭐ Featured filter applied");
+
+  if (req.query.isFeatured) query.isFeatured = req.query.isFeatured === "true";
+  if (req.query.isBestSeller)
+    query.isBestSeller = req.query.isBestSeller === "true";
+  if (req.query.isNewArrival)
+    query.isNewArrival = req.query.isNewArrival === "true";
+
+  // Price filters
+  if (req.query.price_min || req.query.price_max) {
+    query.price = {};
+    if (req.query.price_min) query.price.$gte = Number(req.query.price_min);
+    if (req.query.price_max) query.price.$lte = Number(req.query.price_max);
   }
-  // Best Seller
-  if (req.query.isBestSeller === "true") {
-    query.isBestSeller = true;
-    console.log("🏆 Best Seller filter applied");
-  }
-  // New Arrival
-  if (req.query.isNewArrival === "true") {
-    query.isNewArrival = true;
-    console.log("🆕 New Arrival filter applied");
-  }
-  // Price
-  // Price filter logic: combine price_min, price_max, and priceRange
-  let priceFilter = {};
-  if (req.query.price_min) {
-    priceFilter.$gte = Number(req.query.price_min);
-    console.log("💰 Price min filter:", req.query.price_min);
-  }
-  if (req.query.price_max) {
-    priceFilter.$lte = Number(req.query.price_max);
-    console.log("💰 Price max filter:", req.query.price_max);
-  }
+
+  // Handle predefined price ranges
   if (req.query.priceRange) {
-    console.log("💰 Price range filter:", req.query.priceRange);
     switch (req.query.priceRange) {
-      case "Under 10K": priceFilter.$lt = 10000; break;
-      case "10K-50K": priceFilter.$gte = 10000; priceFilter.$lte = 50000; break;
-      case "50K-100K": priceFilter.$gte = 50000; priceFilter.$lte = 100000; break;
-      case "100K-500K": priceFilter.$gte = 100000; priceFilter.$lte = 500000; break;
-      case "500K+": priceFilter.$gte = 500000; break;
+      case "Under 10K":
+        query.price = { $lt: 10000 };
+        break;
+      case "10K-50K":
+        query.price = { $gte: 10000, $lte: 50000 };
+        break;
+      case "50K-100K":
+        query.price = { $gte: 50000, $lte: 100000 };
+        break;
+      case "100K-500K":
+        query.price = { $gte: 100000, $lte: 500000 };
+        break;
+      case "500K+":
+        query.price = { $gte: 500000 };
+        break;
     }
   }
-  if (Object.keys(priceFilter).length > 0) {
-    query.price = priceFilter;
-    console.log("✅ Price filter applied:", priceFilter);
-  }
-  // Rating
+
+  // Rating filters
   if (req.query.rating_min || req.query.rating_max) {
     query["reviews.rating"] = {};
-    if (req.query.rating_min) query["reviews.rating"].$gte = Number(req.query.rating_min);
-    if (req.query.rating_max) query["reviews.rating"].$lte = Number(req.query.rating_max);
+    if (req.query.rating_min)
+      query["reviews.rating"].$gte = Number(req.query.rating_min);
+    if (req.query.rating_max)
+      query["reviews.rating"].$lte = Number(req.query.rating_max);
   }
 
-  // Category-specific filters from categoryFilters field
-  // Handle dynamic category filters based on the query parameters
-  Object.entries(req.query).forEach(([key, value]) => {
-    // Skip internal params and already handled general filters
-    const skipParams = new Set([
-      "brand",
-      "isFeatured", 
-      "isBestSeller",
-      "isNewArrival",
-      "price_min",
-      "price_max",
-      "priceRange",
-      "rating_min", 
-      "rating_max",
-      "sort",
-      "category",
-      "page", 
-      "limit",
-      "search",
-      "_t",
-    ]);
+  // Inverter-specific fields (type/phase/powerRating) are handled later
+  // in the category-resolved filtering section so we avoid creating
+  // conflicting queries against `specifications.items` when the
+  // admin stores values under `categoryFilters`.
 
-    if (skipParams.has(key) || value === undefined || value === null || value === "") {
-      return;
-    }
+  // Category-specific filters for solar panels
+  if (req.query.panelType) query["specifications.Type"] = req.query.panelType;
+  if (req.query.wattage_min || req.query.wattage_max) {
+    query["specifications.Wattage"] = {};
+    if (req.query.wattage_min)
+      query["specifications.Wattage"].$gte = Number(req.query.wattage_min);
+    if (req.query.wattage_max)
+      query["specifications.Wattage"].$lte = Number(req.query.wattage_max);
+  }
+  if (req.query.efficiency_min || req.query.efficiency_max) {
+    query["specifications.Efficiency"] = {};
+    if (req.query.efficiency_min)
+      query["specifications.Efficiency"].$gte = Number(
+        req.query.efficiency_min
+      );
+    if (req.query.efficiency_max)
+      query["specifications.Efficiency"].$lte = Number(
+        req.query.efficiency_max
+      );
+  }
 
-    // Handle category-specific filter fields
-    if (key.endsWith("_min") || key.endsWith("_max")) {
-      // Handle range filters (stored in categoryFilters)
-      const baseField = key.replace(/_min$|_max$/, "");
-      const isMin = key.endsWith("_min");
+  // Category-specific filters for batteries
+  if (req.query.batteryType)
+    query["specifications.Type"] = req.query.batteryType;
+  if (req.query.voltage) query["specifications.Voltage"] = req.query.voltage;
+  if (req.query.capacity_min || req.query.capacity_max) {
+    query["specifications.Capacity"] = {};
+    if (req.query.capacity_min)
+      query["specifications.Capacity"].$gte = Number(req.query.capacity_min);
+    if (req.query.capacity_max)
+      query["specifications.Capacity"].$lte = Number(req.query.capacity_max);
+  }
+  if (req.query.cycleLife_min || req.query.cycleLife_max) {
+    query["specifications.CycleLife"] = {};
+    if (req.query.cycleLife_min)
+      query["specifications.CycleLife"].$gte = Number(req.query.cycleLife_min);
+    if (req.query.cycleLife_max)
+      query["specifications.CycleLife"].$lte = Number(req.query.cycleLife_max);
+  }
 
-      if (!query[`categoryFilters.${baseField}`]) {
-        query[`categoryFilters.${baseField}`] = {};
-      }
+  // Category-specific filters for tools
+  if (req.query.toolType) query["specifications.Type"] = req.query.toolType;
+  if (req.query.toolCategory)
+    query["specifications.Category"] = req.query.toolCategory;
 
-      if (isMin) {
-        query[`categoryFilters.${baseField}`].$gte = Number(value);
-        console.log(`🔢 Category filter applied: ${baseField} >= ${value}`);
-      } else {
-        query[`categoryFilters.${baseField}`].$lte = Number(value);
-        console.log(`🔢 Category filter applied: ${baseField} <= ${value}`);
-      }
-    } else if (value === "true" || value === true) {
-      // Handle boolean filters (like On-Grid, Off-Grid, Hybrid)
-      query[`categoryFilters.${key}`] = true;
-      console.log(`☑️  Category filter applied: ${key} = true`);
-    } else if (typeof value === "string" && value.trim() !== "") {
-      // Handle select filters (like phase, batteryType, etc.)
-      query[`categoryFilters.${key}`] = value;
-      console.log(`📋 Category filter applied: ${key} = ${value}`);
-    }
-  });
+  // Category-specific filters for accessories
+  if (req.query.accessoryType)
+    query["specifications.Type"] = req.query.accessoryType;
+  if (req.query.material) query["specifications.Material"] = req.query.material;
+
+  // General filters
+  if (req.query.warranty) query["specifications.Warranty"] = req.query.warranty;
+  if (req.query.countryOfOrigin)
+    query["specifications.CountryOfOrigin"] = req.query.countryOfOrigin;
 
   // SEARCH FUNCTIONALITY - SIMPLIFIED AND FIXED
   if (
@@ -192,10 +189,7 @@ const getAllProducts = asyncHandler(async (req, res) => {
     typeof req.query.search === "string" &&
     req.query.search.trim() !== ""
   ) {
-    const safeSearch = req.query.search.replace(
-      /[-[\]{}()*+?.,\\^$|#\s]/g,
-      "\\$&"
-    );
+    const safeSearch = req.query.search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const searchRegex = new RegExp(safeSearch, "i");
     query.$or = [
       { name: searchRegex },
@@ -206,17 +200,15 @@ const getAllProducts = asyncHandler(async (req, res) => {
     ];
   }
 
-  // Dynamic specification filters - simplified (for legacy compatibility)
+  // Dynamic specification filters - simplified
   Object.entries(req.query).forEach(([key, value]) => {
-    // Skip internal query params and empty values, and category-specific filters
+    // Skip internal query params and empty values
     const skipParams = new Set([
       "brand",
       "isFeatured",
       "isBestSeller",
-      "isNewArrival",
       "price_min",
       "price_max",
-      "priceRange",
       "rating_min",
       "rating_max",
       "sort",
@@ -225,17 +217,30 @@ const getAllProducts = asyncHandler(async (req, res) => {
       "limit",
       "search",
       "_t", // Skip timestamp parameter
-      // Skip all category-specific filters - they are handled by categoryFilters
-      "On-Grid", "Off-Grid", "Hybrid", "phase", "batteryType", "voltage", "wattage"
     ]);
 
     if (skipParams.has(key) || value === undefined || value === null) return;
-    
-    // Skip range filters as they are handled by categoryFilters 
-    if (key.endsWith("_min") || key.endsWith("_max")) return;
 
     // Handle array values (multiple filters with same key -> req.query[key] becomes an array)
     if (Array.isArray(value)) {
+      // For numeric range suffixes, attempt to pick min/max if provided as arrays
+      if (key.endsWith("_min") || key.endsWith("_max")) {
+        // Convert array values to numbers when possible by taking the first valid numeric entry
+        const numericVals = value
+          .map((v) => Number(v))
+          .filter((n) => !isNaN(n));
+        if (numericVals.length === 0) return;
+        const field = key.endsWith("_min")
+          ? key.replace("_min", "")
+          : key.replace("_max", "");
+        if (!query[`specifications.${field}`])
+          query[`specifications.${field}`] = {};
+        if (key.endsWith("_min"))
+          query[`specifications.${field}`].$gte = numericVals[0];
+        else query[`specifications.${field}`].$lte = numericVals[0];
+        return;
+      }
+
       // For general exact matches, use $in
       query[`specifications.${key}`] = { $in: value };
       return;
@@ -244,11 +249,85 @@ const getAllProducts = asyncHandler(async (req, res) => {
     // Now value is a single primitive. Only operate on non-empty strings or numbers
     if (typeof value === "string" && value.trim() === "") return;
 
-    // For exact matches on legacy specifications
-    query[`specifications.${key}`] = value;
+    const specFilter = {};
+    if (key.endsWith("_min")) {
+      const field = key.replace("_min", "");
+      specFilter[`specifications.${field}.min`] = Number(value);
+    } else if (key.endsWith("_max")) {
+      const field = key.replace("_max", "");
+      specFilter[`specifications.${field}.max`] = Number(value);
+    } else {
+      // For exact matches
+      specFilter[`specifications.${key}`] = value;
+    }
+    Object.assign(query, specFilter);
   });
 
+  // Category-specific filters from categoryFilters field
+  // Handle filters that were set via the admin panel for this category
+  Object.entries(req.query).forEach(([key, value]) => {
+    // Skip internal params and already handled filters
+    const skipParams = new Set([
+      "brand",
+      "isFeatured",
+      "isBestSeller",
+      "isNewArrival",
+      "price_min",
+      "price_max",
+      "rating_min",
+      "rating_max",
+      "sort",
+      "category",
+      "page",
+      "limit",
+      "search",
+      "_t",
+    ]);
 
+    if (
+      skipParams.has(key) ||
+      value === undefined ||
+      value === null ||
+      value === ""
+    )
+      return;
+
+    // Check if this filter exists in categoryFilters
+    if (
+      key === "phase" ||
+      key === "batteryType" ||
+      key === "voltage" ||
+      key === "wattage" ||
+      key === "On-Grid" ||
+      key === "Off-Grid" ||
+      key.includes("_min") ||
+      key.includes("_max")
+    ) {
+      if (key.endsWith("_min") || key.endsWith("_max")) {
+        // Handle range filters
+        const baseField = key.replace(/_min$|_max$/, "");
+        const isMin = key.endsWith("_min");
+
+        if (!query[`categoryFilters.${baseField}`]) {
+          query[`categoryFilters.${baseField}`] = {};
+        }
+
+        if (isMin) {
+          query[`categoryFilters.${baseField}`].$gte = Number(value);
+        } else {
+          query[`categoryFilters.${baseField}`].$lte = Number(value);
+        }
+      } else if (key === "On-Grid" || key === "Off-Grid") {
+        // Handle boolean filters
+        if (value === "true" || value === true) {
+          query[`categoryFilters.${key}`] = true;
+        }
+      } else {
+        // Handle select filters (exact match)
+        query[`categoryFilters.${key}`] = value;
+      }
+    }
+  });
 
   // Pagination - moved before category filter to fix scoping issue
   // Pagination: allow admin requests to fetch all products by default
@@ -305,7 +384,162 @@ const getAllProducts = asyncHandler(async (req, res) => {
     }
   }
 
-  // Pagination - moved before category filter to fix scoping issue  // Enable aggressive caching for better performance
+  // Category-specific filters for solar panels
+  if (req.query.panelType) query["specifications.Type"] = req.query.panelType;
+  if (req.query.wattage_min || req.query.wattage_max) {
+    query["specifications.Wattage"] = {};
+    if (req.query.wattage_min)
+      query["specifications.Wattage"].$gte = Number(req.query.wattage_min);
+    if (req.query.wattage_max)
+      query["specifications.Wattage"].$lte = Number(req.query.wattage_max);
+  }
+  if (req.query.efficiency_min || req.query.efficiency_max) {
+    query["specifications.Efficiency"] = {};
+    if (req.query.efficiency_min)
+      query["specifications.Efficiency"].$gte = Number(
+        req.query.efficiency_min
+      );
+    if (req.query.efficiency_max)
+      query["specifications.Efficiency"].$lte = Number(
+        req.query.efficiency_max
+      );
+  }
+
+  // Category-specific filters for batteries
+  if (req.query.batteryType)
+    query["specifications.Type"] = req.query.batteryType;
+  if (req.query.voltage) query["specifications.Voltage"] = req.query.voltage;
+  if (req.query.capacity_min || req.query.capacity_max) {
+    query["specifications.Capacity"] = {};
+    if (req.query.capacity_min)
+      query["specifications.Capacity"].$gte = Number(req.query.capacity_min);
+    if (req.query.capacity_max)
+      query["specifications.Capacity"].$lte = Number(req.query.capacity_max);
+  }
+  if (req.query.cycleLife_min || req.query.cycleLife_max) {
+    query["specifications.CycleLife"] = {};
+    if (req.query.cycleLife_min)
+      query["specifications.CycleLife"].$gte = Number(req.query.cycleLife_min);
+    if (req.query.cycleLife_max)
+      query["specifications.CycleLife"].$lte = Number(req.query.cycleLife_max);
+  }
+
+  // Category-specific filters for tools
+  if (req.query.toolType) query["specifications.Type"] = req.query.toolType;
+  if (req.query.toolCategory)
+    query["specifications.Category"] = req.query.toolCategory;
+
+  // Category-specific filters for accessories
+  if (req.query.accessoryType)
+    query["specifications.Type"] = req.query.accessoryType;
+  if (req.query.material) query["specifications.Material"] = req.query.material;
+
+  // General filters
+  if (req.query.warranty) query["specifications.Warranty"] = req.query.warranty;
+  if (req.query.countryOfOrigin)
+    query["specifications.CountryOfOrigin"] = req.query.countryOfOrigin;
+
+  // SEARCH FUNCTIONALITY - SIMPLIFIED AND FIXED
+  if (
+    req.query.search &&
+    typeof req.query.search === "string" &&
+    req.query.search.trim() !== ""
+  ) {
+    const safeSearch = req.query.search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const searchRegex = new RegExp(safeSearch, "i");
+    query.$or = [
+      { name: searchRegex },
+      { slug: searchRegex },
+      { "specifications.items.value": searchRegex },
+      { description: searchRegex },
+      { tags: searchRegex },
+    ];
+  }
+
+  // Initialize filters counter for debugging
+  let appliedFiltersCount = 0;
+
+  // Apply category-specific filters when category is selected
+  if (req.query.category) {
+    const specFilters = [];
+    
+    Object.entries(req.query).forEach(([key, value]) => {
+      // Skip standard non-filter params
+      const skipKeys = new Set([
+        "brand", "isFeatured", "isBestSeller", "isNewArrival",
+        "price_min", "price_max", "rating_min", "rating_max", 
+        "sort", "category", "page", "limit", "search", "_t"
+      ]);
+      
+      if (skipKeys.has(key) || value === undefined || value === null || value === "") return;
+
+      console.log(`🔍 Processing category filter: ${key} = ${value} (type: ${typeof value})`);
+
+      // Handle range filters (e.g., power_min, power_max)
+      if (key.endsWith("_min")) {
+        const field = key.replace(/_min$/, "");
+        const filter = {
+          $or: [
+            { [`categoryFilters.${field}`]: { $gte: Number(value) } },
+            { "specifications.items": { $elemMatch: { name: field, value: { $gte: Number(value) } } } }
+          ]
+        };
+        specFilters.push(filter);
+        console.log(`✅ Added min range filter for ${field}:`, JSON.stringify(filter));
+        return;
+      }
+      
+      if (key.endsWith("_max")) {
+        const field = key.replace(/_max$/, "");
+        const filter = {
+          $or: [
+            { [`categoryFilters.${field}`]: { $lte: Number(value) } },
+            { "specifications.items": { $elemMatch: { name: field, value: { $lte: Number(value) } } } }
+          ]
+        };
+        specFilters.push(filter);
+        console.log(`✅ Added max range filter for ${field}:`, JSON.stringify(filter));
+        return;
+      }
+      
+      // Handle boolean filters (e.g., Hybrid=true, On-Grid=true, Off-Grid=true)
+      if (value === "true" || value === true) {
+        const filter = {
+          $or: [
+            { [`categoryFilters.${key}`]: true },
+            { "specifications.items": { $elemMatch: { value: { $regex: new RegExp(`^${escapeRegex(String(key))}$`, 'i') } } } }
+          ]
+        };
+        specFilters.push(filter);
+        console.log(`✅ Added boolean filter for ${key}:`, JSON.stringify(filter));
+        return;
+      }
+      
+      // Handle string/select filters (e.g., phase="Single-Phase")
+      if (typeof value === "string" && value.trim() !== "") {
+        const filter = {
+          $or: [
+            { [`categoryFilters.${key}`]: value },
+            { "specifications.items": { $elemMatch: { name: key, value: value } } },
+            { "specifications.items": { $elemMatch: { value: value } } }
+          ]
+        };
+        specFilters.push(filter);
+        console.log(`✅ Added string filter for ${key}:`, JSON.stringify(filter));
+        return;
+      }
+    });
+
+    // Add all category filters to the main query
+    if (specFilters.length > 0) {
+      if (!query.$and) query.$and = [];
+      query.$and.push(...specFilters);
+      appliedFiltersCount = specFilters.length;
+      console.log(`🎯 Applied ${specFilters.length} category-specific filters`);
+    }
+  }
+
+  // Enable aggressive caching for better performance
   const cacheKey = `products:${JSON.stringify(query)}:${sort}:${page}:${limit}`;
   const { getFromCache, setCache } = require("../utils/redisCache");
 
@@ -328,10 +562,17 @@ const getAllProducts = asyncHandler(async (req, res) => {
     console.log("Skipping cache for dynamic query keys:", dynamicKeys);
   }
 
+  // Set appropriate cache headers (cache for 5 minutes)
+  res.setHeader("Cache-Control", "public, max-age=300, s-maxage=300");
+  res.setHeader("ETag", `"${Date.now()}"`);
+
   // Detailed debug logging
-  console.log("Final query:", JSON.stringify(query, null, 2));
+  console.log("🟦 Final MongoDB query for products:", JSON.stringify(query, null, 2));
   console.log("Sort config:", JSON.stringify(sortObj, null, 2));
   console.log("Pagination:", { page, limit, skip });
+  console.log("🔍 Filter keys from query:", Object.keys(req.query).filter(k => !['sort','page','limit','search','_t'].includes(k)));
+  console.log("🔍 Has category filter:", !!req.query.category);
+  console.log("🔍 Applied category filters count:", appliedFiltersCount);
 
   const [products, total] = await Promise.all([
     Product.find(query)
@@ -428,7 +669,7 @@ const getProductsByCategory = asyncHandler(async (req, res) => {
 
   // Helper function to escape regex special characters
   function escapeRegex(text) {
-    return text.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, "\\$&");
+    return String(text).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   }
 
   // Dynamic specification filters
@@ -489,9 +730,6 @@ const getProductsByCategory = asyncHandler(async (req, res) => {
   }
 
   // Ensure we only call .sort once. Use sortQuery which may be textScore or computed sortObj
-  // Debug: Show final query object
-  console.log('🔍 Final MongoDB Query:', JSON.stringify(query, null, 2));
-
   const [products, total] = await Promise.all([
     Product.find(query, projection)
       .populate("brand", "name slug")
@@ -506,15 +744,13 @@ const getProductsByCategory = asyncHandler(async (req, res) => {
     Product.countDocuments(query),
   ]);
 
-  console.log(`✅ Returned ${products.length} products (filtered)`);
-
-  // Disable caching for filtered results to ensure filters work
-  res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
-  res.setHeader("Pragma", "no-cache");
-  res.setHeader("Expires", "0");
-
   res.json({
     success: true,
+    category: {
+      name: category.name,
+      slug: category.slug,
+      image: category.image,
+    },
     products,
     pagination: {
       page,
@@ -585,12 +821,69 @@ const createProduct = asyncHandler(async (req, res) => {
     // Process videos - convert simple URLs to structured objects
     parsedVideos = Array.isArray(videos) ? videos : validateJSON(videos, []);
 
-    // Parse category filter values
+    // Parse category filter values (defensive)
     let parsedCategoryFilterValues = {};
-    if (categoryFilterValues) {
-      parsedCategoryFilterValues = validateJSON(categoryFilterValues, {});
-      console.log("Parsed category filter values:", parsedCategoryFilterValues);
+    try {
+      if (categoryFilterValues && categoryFilterValues !== "null") {
+        parsedCategoryFilterValues = validateJSON(categoryFilterValues, {});
+      } else {
+        parsedCategoryFilterValues = {};
+      }
+    } catch (err) {
+      console.warn("Failed to parse categoryFilterValues in createProduct:", err?.message || err);
+      parsedCategoryFilterValues = {};
     }
+    console.log("Parsed category filter values:", parsedCategoryFilterValues);
+    // Merge any individual filter fields that may have been sent directly
+    // (e.g., checkbox inputs named like 'Hybrid' or range fields like 'power_min')
+    let finalCategoryFilters = { ...(parsedCategoryFilterValues || {}) };
+    try {
+      // Resolve category key to look up filter definitions
+      let resolvedCategoryKey = category;
+      if (resolvedCategoryKey && !categoryFilters[resolvedCategoryKey]) {
+        if (resolvedCategoryKey !== 'general' && resolvedCategoryKey !== 'brand') {
+          const maybeCat = await Category.findOne({
+            $or: [{ slug: resolvedCategoryKey }, { name: new RegExp(`^${resolvedCategoryKey}$`, "i") }],
+          });
+          if (maybeCat && maybeCat.slug) resolvedCategoryKey = maybeCat.slug;
+        }
+      }
+
+      const resolvedFiltersDef = categoryFilters[resolvedCategoryKey] || categoryFilters['default'] || [];
+
+      resolvedFiltersDef.forEach((def) => {
+        const key = def.field;
+        if (def.type === 'boolean') {
+          if (typeof finalCategoryFilters[key] === 'undefined') {
+            const raw = req.body[key];
+            if (raw === 'true' || raw === true || raw === 'on' || raw === '1') {
+              finalCategoryFilters[key] = true;
+            } else if (raw === 'false' || raw === false) {
+              finalCategoryFilters[key] = false;
+            }
+          }
+        } else if (def.type === 'range') {
+          const minKey = `${key}_min`;
+          const maxKey = `${key}_max`;
+          if (typeof finalCategoryFilters[minKey] === 'undefined' && typeof req.body[minKey] !== 'undefined' && req.body[minKey] !== '') {
+            const n = Number(req.body[minKey]);
+            if (!isNaN(n)) finalCategoryFilters[minKey] = n;
+          }
+          if (typeof finalCategoryFilters[maxKey] === 'undefined' && typeof req.body[maxKey] !== 'undefined' && req.body[maxKey] !== '') {
+            const n = Number(req.body[maxKey]);
+            if (!isNaN(n)) finalCategoryFilters[maxKey] = n;
+          }
+        } else {
+          // select / string fields
+          if (typeof finalCategoryFilters[key] === 'undefined' && typeof req.body[key] !== 'undefined' && req.body[key] !== '') {
+            finalCategoryFilters[key] = req.body[key];
+          }
+        }
+      });
+    } catch (mergeErr) {
+      console.warn('Error merging category filters:', mergeErr?.message || mergeErr);
+    }
+    console.log('Final category filters to save:', finalCategoryFilters);
     parsedVideos = parsedVideos.map((video, index) => {
       if (typeof video === "string") {
         // Convert simple URL string to structured object
@@ -683,6 +976,7 @@ const createProduct = asyncHandler(async (req, res) => {
 
     console.log("Final documents array for saving:", documentObjs);
 
+    console.log('🟧 Saving product with categoryFilters:', JSON.stringify(finalCategoryFilters, null, 2));
     const newProduct = new Product({
       name,
       slug,
@@ -707,7 +1001,7 @@ const createProduct = asyncHandler(async (req, res) => {
       relatedProducts: parsedRelatedProducts,
       videos: parsedVideos,
       documents: documentObjs,
-      categoryFilters: parsedCategoryFilterValues, // Store category-specific filter values
+      categoryFilters: finalCategoryFilters, // Store category-specific filter values
     });
 
     await newProduct.save();
@@ -743,6 +1037,8 @@ const updateProduct = asyncHandler(async (req, res) => {
     "relatedProducts",
     "shippingInfo",
     "documentTypes",
+    // Accept categoryFilterValues from FormData for edits
+    "categoryFilterValues",
   ];
 
   jsonFields.forEach((field) => {
@@ -835,6 +1131,73 @@ const updateProduct = asyncHandler(async (req, res) => {
 
   // Remove documentTypes from updateData as it's only used for processing
   delete updateData.documentTypes;
+
+  // If categoryFilterValues was provided (stringified JSON), move it to categoryFilters
+  if (updateData.categoryFilterValues) {
+    try {
+      const parsed =
+        typeof updateData.categoryFilterValues === "string"
+          ? JSON.parse(updateData.categoryFilterValues)
+          : updateData.categoryFilterValues;
+      updateData.categoryFilters = parsed || {};
+    } catch (err) {
+      console.warn("Failed to parse categoryFilterValues during update:", err.message);
+      updateData.categoryFilters = {};
+    }
+    delete updateData.categoryFilterValues;
+  }
+  console.log('🟧 Updating product with categoryFilters:', JSON.stringify(updateData.categoryFilters, null, 2));
+
+  // Merge any individual filter fields into updateData.categoryFilters
+  try {
+    // Resolve category key to look up filter definitions if available
+    let resolvedCategoryKey = updateData.category || undefined;
+    if (resolvedCategoryKey && !categoryFilters[resolvedCategoryKey]) {
+      if (resolvedCategoryKey !== 'general' && resolvedCategoryKey !== 'brand') {
+        const maybeCat = await Category.findOne({
+          $or: [{ slug: resolvedCategoryKey }, { name: new RegExp(`^${resolvedCategoryKey}$`, "i") }],
+        });
+        if (maybeCat && maybeCat.slug) resolvedCategoryKey = maybeCat.slug;
+      }
+    }
+
+    const resolvedFiltersDef = categoryFilters[resolvedCategoryKey] || categoryFilters['default'] || [];
+
+    updateData.categoryFilters = updateData.categoryFilters || {};
+
+    resolvedFiltersDef.forEach((def) => {
+      const key = def.field;
+      if (def.type === 'boolean') {
+        if (typeof updateData.categoryFilters[key] === 'undefined') {
+          const raw = req.body[key];
+          if (raw === 'true' || raw === true || raw === 'on' || raw === '1') {
+            updateData.categoryFilters[key] = true;
+          } else if (raw === 'false' || raw === false) {
+            updateData.categoryFilters[key] = false;
+          }
+        }
+      } else if (def.type === 'range') {
+        const minKey = `${key}_min`;
+        const maxKey = `${key}_max`;
+        if (typeof updateData.categoryFilters[minKey] === 'undefined' && typeof req.body[minKey] !== 'undefined' && req.body[minKey] !== '') {
+          const n = Number(req.body[minKey]);
+          if (!isNaN(n)) updateData.categoryFilters[minKey] = n;
+        }
+        if (typeof updateData.categoryFilters[maxKey] === 'undefined' && typeof req.body[maxKey] !== 'undefined' && req.body[maxKey] !== '') {
+          const n = Number(req.body[maxKey]);
+          if (!isNaN(n)) updateData.categoryFilters[maxKey] = n;
+        }
+      } else {
+        if (typeof updateData.categoryFilters[key] === 'undefined' && typeof req.body[key] !== 'undefined' && req.body[key] !== '') {
+          updateData.categoryFilters[key] = req.body[key];
+        }
+      }
+    });
+
+    console.log('Final category filters for update:', updateData.categoryFilters);
+  } catch (mergeErr) {
+    console.warn('Error merging category filters during update:', mergeErr?.message || mergeErr);
+  }
 
   console.log("Final update data keys:", Object.keys(updateData));
   console.log(
