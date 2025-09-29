@@ -10,7 +10,7 @@ const transporter = nodemailer.createTransport({
     : undefined,
 })
 
-const CONTACT_TO = process.env.CONTACT_TO_EMAIL || process.env.PARTNERSHIP_EMAIL || 'partnerships@solarexpress.pk'
+const CONTACT_TO = process.env.CONTACT_TO_EMAIL || process.env.PARTNERSHIP_EMAIL || 'info@solarexpress.pk'
 
 exports.submitPartnership = async (req, res) => {
   try {

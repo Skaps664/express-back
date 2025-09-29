@@ -406,16 +406,42 @@ const getProductsByCategory = asyncHandler(async (req, res) => {
   }
 
   if (req.query.search) {
-    const searchRegex = new RegExp(escapeRegex(req.query.search), "i");
+    const searchTerm = req.query.search.trim();
+    console.log('🔍 Search term:', searchTerm);
+    
+    const searchRegex = new RegExp(escapeRegex(searchTerm), "i");
+    
+    // First, find brands and categories that match the search term
+    const [matchingBrands, matchingCategories] = await Promise.all([
+      Brand.find({ name: searchRegex }).select('_id'),
+      Category.find({ name: searchRegex }).select('_id')
+    ]);
+    
+    console.log('🔍 Matching brands:', matchingBrands.map(b => b._id));
+    console.log('🔍 Matching categories:', matchingCategories.map(c => c._id));
+    
     const searchConditions = [
       { name: searchRegex },
       { slug: searchRegex },
-      { "specifications.items.value": searchRegex },
-      { "brand.name": searchRegex }, // This requires proper population
-      { "category.name": searchRegex }, // This requires proper population
       { description: searchRegex },
       { tags: searchRegex },
+      // Search in specification items for values like "10kw", "hybrid", etc.
+      { "specifications.items.value": searchRegex },
+      { "specifications.items.name": searchRegex },
+      // Search in category filters for values
+      { "categoryFilters.value": searchRegex },
+      { "categoryFilters.name": searchRegex },
     ];
+    
+    // Add brand matches if any
+    if (matchingBrands.length > 0) {
+      searchConditions.push({ brand: { $in: matchingBrands.map(b => b._id) } });
+    }
+    
+    // Add category matches if any
+    if (matchingCategories.length > 0) {
+      searchConditions.push({ category: { $in: matchingCategories.map(c => c._id) } });
+    }
 
     // If there are other filters, combine with $and, otherwise use $or directly
     if (Object.keys(query).length > 0) {
