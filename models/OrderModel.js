@@ -30,6 +30,15 @@ const orderItemSchema = new mongoose.Schema(
     image: {
       type: String, // Store product image URL at time of order
     },
+    // Review tracking
+    isReviewed: {
+      type: Boolean,
+      default: false,
+    },
+    review: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Review",
+    },
   },
   { _id: true }
 );

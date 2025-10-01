@@ -2,28 +2,24 @@ const express = require("express");
 const router = express.Router();
 const { authMiddleware, isAdmin } = require("../middlewares/authMiddleware");
 const {
+  getEligibleForReview,
+  getUserReviews,
   createReview,
   getProductReviews,
   updateReview,
   deleteReview,
-  toggleReviewLike,
-  checkReviewEligibility,
-  simulatePurchase,
+  toggleReviewLike
 } = require("../controller/reviewController");
 
 // Public routes
-router.get("/product/:productId", getProductReviews);
+router.get("/product/:productId", getProductReviews); // Get reviews for a product
 
 // Protected routes (auth required)
-router.post("/create", authMiddleware, createReview);
-router.put("/:reviewId", authMiddleware, updateReview);
-router.delete("/:reviewId", authMiddleware, deleteReview);
-router.post("/:reviewId/like", authMiddleware, toggleReviewLike);
-router.get("/check/:productId", authMiddleware, checkReviewEligibility);
-
-// Development routes
-if (process.env.NODE_ENV !== "production") {
-  router.post("/simulate-purchase", authMiddleware, simulatePurchase);
-}
+router.get("/eligible", authMiddleware, getEligibleForReview); // Get user's products eligible for review
+router.get("/user", authMiddleware, getUserReviews); // Get user's reviews
+router.post("/", authMiddleware, createReview); // Create a new review (using orderItemId)
+router.put("/:reviewId", authMiddleware, updateReview); // Update a review
+router.delete("/:reviewId", authMiddleware, deleteReview); // Delete a review
+router.post("/:reviewId/like", authMiddleware, toggleReviewLike); // Like/unlike a review
 
 module.exports = router;

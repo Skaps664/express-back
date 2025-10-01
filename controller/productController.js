@@ -354,17 +354,92 @@ const getAllProducts = asyncHandler(async (req, res) => {
   console.log("Pagination:", { page, limit, skip });
 
   const [products, total] = await Promise.all([
-    Product.find(query)
-      .populate("brand", "name slug logo")
-      .populate("category", "name slug")
-      .populate("subCategory", "name slug")
-      .select(
-        "name slug price originalPrice discountPercentage stock images specifications isFeatured isBestSeller isNewArrival isActive reviews viewCount variants tags keyFeatures videos shippingInfo createdAt updatedAt"
-      )
-      .sort(sortObj)
-      .skip(skip)
-      .limit(limit)
-      .lean(), // Add lean() for 2-3x faster queries
+    Product.aggregate([
+      { $match: query },
+      {
+        $lookup: {
+          from: "brands",
+          localField: "brand",
+          foreignField: "_id",
+          as: "brand",
+          pipeline: [{ $project: { name: 1, slug: 1, logo: 1 } }]
+        }
+      },
+      {
+        $lookup: {
+          from: "categories",
+          localField: "category",
+          foreignField: "_id",
+          as: "category",
+          pipeline: [{ $project: { name: 1, slug: 1 } }]
+        }
+      },
+      {
+        $lookup: {
+          from: "categories",
+          localField: "subCategory",
+          foreignField: "_id",
+          as: "subCategory",
+          pipeline: [{ $project: { name: 1, slug: 1 } }]
+        }
+      },
+      {
+        $lookup: {
+          from: "reviews",
+          localField: "_id",
+          foreignField: "product",
+          as: "reviewsData"
+        }
+      },
+      {
+        $addFields: {
+          brand: { $arrayElemAt: ["$brand", 0] },
+          category: { $arrayElemAt: ["$category", 0] },
+          subCategory: { $arrayElemAt: ["$subCategory", 0] },
+          reviews: {
+            rating: {
+              $cond: [
+                { $gt: [{ $size: "$reviewsData" }, 0] },
+                { $avg: "$reviewsData.rating" },
+                0
+              ]
+            },
+            count: { $size: "$reviewsData" }
+          }
+        }
+      },
+      {
+        $project: {
+          name: 1,
+          slug: 1,
+          price: 1,
+          originalPrice: 1,
+          discountPercentage: 1,
+          stock: 1,
+          images: 1,
+          specifications: 1,
+          isFeatured: 1,
+          isBestSeller: 1,
+          isNewArrival: 1,
+          isActive: 1,
+          reviews: 1,
+          viewCount: 1,
+          variants: 1,
+          tags: 1,
+          keyFeatures: 1,
+          videos: 1,
+          shippingInfo: 1,
+          createdAt: 1,
+          updatedAt: 1,
+          brand: 1,
+          category: 1,
+          subCategory: 1
+        }
+      },
+      { $sort: sortObj },
+      { $skip: skip },
+      { $limit: limit }
+    ]),
     Product.countDocuments(query),
   ]);
 
