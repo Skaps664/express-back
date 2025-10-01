@@ -12,28 +12,40 @@ const searchEntities = asyncHandler(async (req, res) => {
   }
 
   try {
-    // Create search regex
-    const searchRegex = new RegExp(
-      search.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, "\\$&"),
-      "i"
+    // Split search query into individual words and create regex for each
+    const searchWords = search.trim().split(/\s+/).filter(word => word.length > 0);
+    
+    // If no valid words, return empty
+    if (searchWords.length === 0) {
+      return res.json({ success: true, data: [] });
+    }
+
+    // Create regex patterns for each word
+    const wordRegexes = searchWords.map(word => 
+      new RegExp(word.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, "\\$&"), "i")
     );
 
     // Get the Model based on type
     const Model = type === "product" ? Product : Brand;
 
-    // Search in the respective collection
-    const results = await Model.find({
+    // Build search conditions that require ALL words to match somewhere
+    const searchConditions = wordRegexes.map(regex => ({
       $or: [
-        { name: searchRegex },
-        { slug: searchRegex },
+        { name: regex },
+        { slug: regex },
         ...(type === "product"
           ? [
-              { description: searchRegex },
-              { tags: searchRegex },
-              { "specifications.items.value": searchRegex },
+              { description: regex },
+              { tags: regex },
+              { "specifications.items.value": regex },
             ]
           : []),
       ],
+    }));
+
+    // Search in the respective collection requiring ALL words to match
+    const results = await Model.find({
+      $and: searchConditions
     })
       .select("name slug brand category")
       .populate("brand", "name")

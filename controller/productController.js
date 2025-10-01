@@ -186,24 +186,44 @@ const getAllProducts = asyncHandler(async (req, res) => {
     }
   });
 
-  // SEARCH FUNCTIONALITY - SIMPLIFIED AND FIXED
+  // SEARCH FUNCTIONALITY - MULTI-WORD SEARCH
   if (
     req.query.search &&
     typeof req.query.search === "string" &&
     req.query.search.trim() !== ""
   ) {
-    const safeSearch = req.query.search.replace(
-      /[-[\]{}()*+?.,\\^$|#\s]/g,
-      "\\$&"
-    );
-    const searchRegex = new RegExp(safeSearch, "i");
-    query.$or = [
-      { name: searchRegex },
-      { slug: searchRegex },
-      { "specifications.items.value": searchRegex },
-      { description: searchRegex },
-      { tags: searchRegex },
-    ];
+    console.log("🔍 Search query received:", req.query.search);
+    
+    // Split search query into individual words and create regex for each
+    const searchWords = req.query.search.trim().split(/\s+/).filter(word => word.length > 0);
+    console.log("🔍 Search words:", searchWords);
+    
+    if (searchWords.length > 0) {
+      // Create regex patterns for each word
+      const wordRegexes = searchWords.map(word => 
+        new RegExp(word.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, "\\$&"), "i")
+      );
+      
+      // Build search conditions that require ALL words to match somewhere
+      const searchConditions = wordRegexes.map(regex => ({
+        $or: [
+          { name: regex },
+          { slug: regex },
+          { description: regex },
+          { tags: regex },
+          { "specifications.items.value": regex },
+        ],
+      }));
+      
+      // Add to query using $and to require all words to match
+      if (query.$and) {
+        query.$and.push(...searchConditions);
+      } else {
+        query.$and = searchConditions;
+      }
+      
+      console.log("🔍 Multi-word search conditions applied for:", searchWords.join(", "));
+    }
   }
 
   // Dynamic specification filters - simplified (for legacy compatibility)
@@ -1434,19 +1454,32 @@ const searchProducts = asyncHandler(async (req, res) => {
   }
 
   try {
-    const searchRegex = new RegExp(
-      q.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, "\\$&"),
-      "i"
+    // Split search query into individual words and create regex for each
+    const searchWords = q.trim().split(/\s+/).filter(word => word.length > 0);
+    
+    // If no valid words, return empty
+    if (searchWords.length === 0) {
+      return res.json({ success: true, data: [] });
+    }
+
+    // Create regex patterns for each word
+    const wordRegexes = searchWords.map(word => 
+      new RegExp(word.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, "\\$&"), "i")
     );
 
-    const products = await Product.find({
+    // Build query that requires ALL words to match somewhere in the product
+    const searchConditions = wordRegexes.map(regex => ({
       $or: [
-        { name: searchRegex },
-        { slug: searchRegex },
-        { description: searchRegex },
-        { tags: searchRegex },
-        { "specifications.items.value": searchRegex },
+        { name: regex },
+        { slug: regex },
+        { description: regex },
+        { tags: regex },
+        { "specifications.items.value": regex },
       ],
+    }));
+
+    const products = await Product.find({
+      $and: searchConditions
     })
       .select("name slug")
       .limit(20);
